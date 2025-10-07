@@ -13,12 +13,11 @@ def nearest_interp(src_array, target_length):
     return src_array[mapped_indices]
 
 
-def set_magcache_params(dit, mag_ratios, magcache_thresh, num_steps, no_cfg):
-    print(f'using Magcache, magcache_thresh {magcache_thresh}')
+def set_magcache_params(dit, mag_ratios, num_steps, no_cfg):
     dit.__class__.forward = magcache_forward
     dit.cnt = 0
     dit.num_steps = num_steps * 2
-    dit.magcache_thresh = magcache_thresh
+    dit.magcache_thresh = 0.12
     dit.K = 2
     dit.accumulated_err = [0.0, 0.0]
     dit.accumulated_steps = [0, 0]
@@ -67,7 +66,7 @@ def magcache_forward(
         self.accumulated_steps[self.cnt%2] += 1 
         cur_skip_err = np.abs(1-self.accumulated_ratio[self.cnt%2]) 
         self.accumulated_err[self.cnt%2] += cur_skip_err 
-        
+
         if self.accumulated_err[self.cnt%2]<self.magcache_thresh and self.accumulated_steps[self.cnt%2]<=self.K:
             skip_forward = True
             residual_visual_embed = self.residual_cache[self.cnt%2]

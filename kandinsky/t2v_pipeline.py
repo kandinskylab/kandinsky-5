@@ -101,6 +101,8 @@ class Kandinsky5T2VPipeline:
         expand_prompts: bool = True,
         save_path: str = None,
         progress: bool = True,
+        magcache: bool = True,
+        magcache_thresh: float = 0.12,
     ):
         num_steps = self.num_steps if num_steps is None else num_steps
         guidance_weight = self.guidance_weight if guidance_weight is None else guidance_weight
@@ -139,6 +141,10 @@ class Kandinsky5T2VPipeline:
                 caption = caption[0]
 
         shape = (1, num_frames, height // 8, width // 8, 16)
+
+        if magcache:
+            print(f'using Magcache, magcache_thresh {magcache_thresh}')
+            self.dit.magcache_thresh = magcache_thresh
 
         # GENERATION
         images = generate_sample(

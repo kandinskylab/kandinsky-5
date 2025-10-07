@@ -31,7 +31,6 @@ def get_T2V_pipeline(
     conf_path: str = None,
     offload: bool = False,
     magcache: bool = False,
-    magcache_thresh: float = 0.12,
 ) -> Kandinsky5T2VPipeline:
     assert resolution in [512]
 
@@ -111,7 +110,7 @@ def get_T2V_pipeline(
         no_cfg = False
         if conf.model.guidance_weight == 1.0:
             no_cfg = True
-        set_magcache_params(dit, mag_ratios, magcache_thresh, num_steps, no_cfg)
+        set_magcache_params(dit, mag_ratios, num_steps, no_cfg)
 
     state_dict = load_file(conf.model.checkpoint_path)
     dit.load_state_dict(state_dict, assign=True)

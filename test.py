@@ -140,7 +140,6 @@ if __name__ == "__main__":
         conf_path=args.config,
         offload=args.offload,
         magcache=args.magcache,
-        magcache_thresh=args.magcache_thresh,
     )
 
     if args.output_filename is None:
@@ -155,6 +154,8 @@ if __name__ == "__main__":
              guidance_weight=args.guidance_weight,
              scheduler_scale=args.scheduler_scale,
              expand_prompts=args.expand_prompt,
+             magcache=args.magcache, 
+             magcache_thresh=args.magcache_thresh,
              save_path=args.output_filename)
     print(f"TIME ELAPSED: {time.perf_counter() - start_time}")
     print(f"Generated video is saved to {args.output_filename}")
