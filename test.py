@@ -117,7 +117,13 @@ def parse_args():
         "--magcache",
         action='store_true',
         default=False,
-        help="Using MagCache (for 50 steps models only)"
+        help="Using MagCache (for sft and no_cfg)"
+    )
+    parser.add_argument(
+        "--magcache_thresh",
+        type=float,
+        default=0.12,
+        help="Magcache threshold"
     )
     args = parser.parse_args()
     return args
@@ -134,6 +140,7 @@ if __name__ == "__main__":
         conf_path=args.config,
         offload=args.offload,
         magcache=args.magcache,
+        magcache_thresh=args.magcache_thresh,
     )
 
     if args.output_filename is None:

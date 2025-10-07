@@ -13,12 +13,12 @@ def nearest_interp(src_array, target_length):
     return src_array[mapped_indices]
 
 
-def set_magcache_params(dit, mag_ratios, num_steps, no_cfg):
-    print(f'using Magcache')
+def set_magcache_params(dit, mag_ratios, magcache_thresh, num_steps, no_cfg):
+    print(f'using Magcache, magcache_thresh {magcache_thresh}')
     dit.__class__.forward = magcache_forward
     dit.cnt = 0
     dit.num_steps = num_steps * 2
-    dit.magcache_thresh = 0.12
+    dit.magcache_thresh = magcache_thresh
     dit.K = 2
     dit.accumulated_err = [0.0, 0.0]
     dit.accumulated_steps = [0, 0]
