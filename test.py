@@ -130,7 +130,7 @@ def parse_args():
         type=str,
         default="auto",
         help="Name of the full attention algorithm to use for <=5 second generation",
-        choices=["flash_attention_2", "flash_attention_3", "sdpa", "auto"]
+        choices=["flash_attention_2", "flash_attention_3", "sdpa", "sage", "auto"]
     )
     args = parser.parse_args()
     return args

@@ -14,6 +14,12 @@ try:
 except:
     flash_attention_3 = None
 
+try:
+    import sageattention
+    print(f"Sage Attention is found")
+except:
+    sageattention = None
+
 @torch.compile(mode="max-autotune-no-cudagraphs", dynamic=True)
 def sdpa(q, k, v):
     query = q.transpose(1, 2).contiguous()
@@ -30,9 +36,20 @@ def sdpa(q, k, v):
     )
     return out
 
+@torch.compile(mode="max-autotune-no-cudagraphs", dynamic=True)
+def sage_attn(q, k, v):
+    out = (
+        sageattention.sageattn(
+            q, k, v,
+            tensor_layout="NHD",
+            is_causal=False
+        )
+    )
+    return out
+
 class SelfAttentionEngine():
     def __init__(self, engine="auto"):
-        assert engine in ["auto", "flash_attention_2", "flash_attention_3", "sdpa"]
+        assert engine in ["auto", "flash_attention_2", "flash_attention_3", "sage", "sdpa"]
         self.attention_fn = None
 
         if engine == "flash_attention_2":
@@ -45,11 +62,18 @@ class SelfAttentionEngine():
                 raise RuntimeError("flash_attention_3 engine selected, but it can't be imported.")
             self.attention_fn = flash_attention_3
 
+        if engine == "sage":
+            if sageattention is None:
+                raise RuntimeError("sage engine selected, but it can't be imported.")
+            self.attention_fn = sage_attn
+
         if engine == "sdpa":
             self.attention_fn = sdpa
         
         if engine == "auto":
             self.attention_fn = sdpa
+            if not sageattention is None:
+                self.attention_fn = sage_attn
             if not flash_attention_2 is None:
                 self.attention_fn = flash_attention_2
             if not flash_attention_3 is None:
