@@ -5,6 +5,7 @@ import torchvision
 from torchvision.transforms import ToPILImage
 
 from .generation_utils import generate_sample
+from .parallel_utils import broadcast_string_as_tensor
 
 
 class Kandinsky5T2VPipeline:
@@ -134,9 +135,10 @@ class Kandinsky5T2VPipeline:
                     self.text_embedder = self.text_embedder.to(self.device_map["text_embedder"])
                 caption = self.expand_prompt(caption)
             if self.world_size > 1:
-                caption = [caption]
-                torch.distributed.broadcast_object_list(caption, 0)
-                caption = caption[0]
+                # Workaround: For some reason broadcast_object_list hangs in PyTorch 2.8.
+                # To fix this we convert string to tensor, broadcast it and convert back to string.
+                caption = broadcast_string_as_tensor(caption, self.local_dit_rank)
+                print(caption)
 
         shape = (1, num_frames, height // 8, width // 8, 16)
 
