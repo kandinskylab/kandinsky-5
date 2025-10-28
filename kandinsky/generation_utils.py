@@ -49,6 +49,8 @@ def get_velocity(
     guidance_weight,
     conf,
     sparse_params=None,
+    attention_mask=None,
+    null_attention_mask=None,
 ):
     pred_velocity = dit(
         x,
@@ -59,6 +61,7 @@ def get_velocity(
         text_rope_pos,
         scale_factor=conf.metrics.scale_factor,
         sparse_params=sparse_params,
+        attention_mask=attention_mask,
     )
     if abs(guidance_weight - 1.0) > 1e-6:
         uncond_pred_velocity = dit(
@@ -70,6 +73,7 @@ def get_velocity(
             null_text_rope_pos,
             scale_factor=conf.metrics.scale_factor,
             sparse_params=sparse_params,
+            attention_mask=null_attention_mask,
         )
         pred_velocity = uncond_pred_velocity + guidance_weight * (
             pred_velocity - uncond_pred_velocity
@@ -93,6 +97,8 @@ def generate(
     conf,
     progress=False,
     seed=6554,
+    attention_mask=None,
+    null_attention_mask=None,
 ):
     g = torch.Generator(device="cuda")
     g.manual_seed(seed)
@@ -124,6 +130,8 @@ def generate(
             guidance_weight,
             conf,
             sparse_params=sparse_params,
+            attention_mask=attention_mask,
+            null_attention_mask=null_attention_mask,
         )
         img = img + timestep_diff * pred_velocity
     return img
@@ -152,12 +160,21 @@ def generate_sample(
         type_of_content = "image"
     else:
         type_of_content = "video"
-        
+    #torch.cuda.memory._record_memory_history()
+    ''' 
+    prof = torch.profiler.profile(
+        activities=[torch.profiler.ProfilerActivity.CUDA],
+        record_shapes=False,
+        profile_memory=False,
+        #on_trace_ready=lambda prof: prof.export_chrome_trace("profiler_logs/text_embedder_padding.pt.trace.json")
+    )
+    prof.start()
+    '''
     with torch.no_grad():
-        bs_text_embed, text_cu_seqlens = text_embedder.encode(
+        bs_text_embed, text_cu_seqlens, attention_mask = text_embedder.encode(
             [caption], type_of_content=type_of_content
         )
-        bs_null_text_embed, null_text_cu_seqlens = text_embedder.encode(
+        bs_null_text_embed, null_text_cu_seqlens, null_attention_mask = text_embedder.encode(
             [negative_caption], type_of_content=type_of_content
         )
 
@@ -169,6 +186,9 @@ def generate_sample(
         bs_null_text_embed[key] = bs_null_text_embed[key].to(device=device)
     text_cu_seqlens = text_cu_seqlens.to(device=device)[-1].item()
     null_text_cu_seqlens = null_text_cu_seqlens.to(device=device)[-1].item()
+    
+    #attention_mask = attention_mask.to(device=device)
+    #null_attention_mask = null_attention_mask.to(device=device)
 
     visual_rope_pos = [
         torch.arange(duration),
@@ -180,7 +200,7 @@ def generate_sample(
 
     if offload:
         dit.to(device, non_blocking=True)
-        
+    #torch.cuda.memory._record_memory_history()    
     with torch.no_grad():
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             latent_visual = generate(
@@ -198,15 +218,17 @@ def generate_sample(
                 conf,
                 seed=seed,
                 progress=progress,
+                attention_mask=attention_mask,
+                null_attention_mask=null_attention_mask,
             )
             
     if offload:
         dit = dit.to('cpu', non_blocking=True)
     torch.cuda.empty_cache()
-
+    #torch.cuda.memory._record_memory_history()    
     if offload:
         vae = vae.to(vae_device, non_blocking=True)
-
+    #torch.cuda.memory._record_memory_history()    
     with torch.no_grad():
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             images = latent_visual.reshape(
@@ -224,5 +246,7 @@ def generate_sample(
     if offload:
         vae = vae.to('cpu', non_blocking=True)
     torch.cuda.empty_cache()
-
+    #torch.cuda.memory._dump_snapshot("text_embedder_padding.pickle")
+    #prof.stop()
+    #prof.export_chrome_trace("profiler_logs/text_embedder_padding.pt.trace.json")
     return images

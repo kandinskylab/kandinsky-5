@@ -53,7 +53,7 @@ class Qwen2_5_VLTextEmbedder:
         "crop_start": {"video": 129, "image": 41},
     }
 
-    def __init__(self, conf, device, quantized_qwen=False):
+    def __init__(self, conf, device, quantized_qwen=False, text_token_padding=False):
         quantization_config = None
         if quantized_qwen:
             quantization_config = BitsAndBytesConfig(
@@ -73,6 +73,7 @@ class Qwen2_5_VLTextEmbedder:
         self.model = torch.compile(self.model, dynamic=True)
         self.processor = AutoProcessor.from_pretrained(conf.checkpoint_path, use_fast=True)
         self.max_length = conf.max_length
+        self.text_token_padding = text_token_padding
 
     def __call__(self, texts, type_of_content="video"):
         prompt_template = "\n".join(self.PROMPT_TEMPLATE["template"][type_of_content])
@@ -87,7 +88,7 @@ class Qwen2_5_VLTextEmbedder:
             max_length=max_length,
             truncation=True,
             return_tensors="pt",
-            padding=True,
+            padding="max_length",
         ).to(self.model.device)
 
         with torch.no_grad():
@@ -97,24 +98,30 @@ class Qwen2_5_VLTextEmbedder:
                 output_hidden_states=True,
             )["hidden_states"][-1][:, crop_start:]
         attention_mask = inputs["attention_mask"][:, crop_start:]
-        embeds = embeds[attention_mask.bool()]
-        cu_seqlens = torch.cumsum(attention_mask.sum(1), dim=0)
-        cu_seqlens = torch.cat([torch.zeros_like(cu_seqlens)[:1], cu_seqlens]).to(
-            dtype=torch.int32
-        )
-        return embeds, cu_seqlens
+        if self.text_token_padding:
+            seq_length = embeds.shape[1]
+            cu_seqlens = torch.tensor([0, seq_length], dtype=torch.int32)
+        else:
+            embeds = embeds[attention_mask.bool()]
+            cu_seqlens = torch.cumsum(attention_mask.sum(1), dim=0)
+            cu_seqlens = torch.cat([torch.zeros_like(cu_seqlens)[:1], cu_seqlens]).to(
+                dtype=torch.int32
+            )
+            attention_mask = None
+        return embeds, cu_seqlens, attention_mask
+
 
 
 class Kandinsky5TextEmbedder:
-    def __init__(self, conf, device="cpu", quantized_qwen=False):
-        self.embedder = Qwen2_5_VLTextEmbedder(conf.qwen, device, quantized_qwen)
+    def __init__(self, conf, device="cpu", quantized_qwen=False, text_token_padding=False):
+        self.embedder = Qwen2_5_VLTextEmbedder(conf.qwen, device, quantized_qwen, text_token_padding)
         self.clip_embedder = ClipTextEmbedder(conf.clip, device)
         self.conf = conf
 
     def encode(self, texts, type_of_content="image"):
-        text_embeds, cu_seqlens = self.embedder(texts, type_of_content=type_of_content)
+        text_embeds, cu_seqlens, attention_mask = self.embedder(texts, type_of_content=type_of_content)
         pooled_embed = self.clip_embedder(texts)
-        return {"text_embeds": text_embeds, "pooled_embed": pooled_embed}, cu_seqlens
+        return {"text_embeds": text_embeds, "pooled_embed": pooled_embed}, cu_seqlens, attention_mask
 
     def to(self, device):
         self.embedder.model = self.embedder.model.to(device)
@@ -122,5 +129,5 @@ class Kandinsky5TextEmbedder:
         return self
 
 
-def get_text_embedder(conf, device="cpu", quantized_qwen=False):
-    return Kandinsky5TextEmbedder(conf, device, quantized_qwen)
+def get_text_embedder(conf, device="cpu", quantized_qwen=False, text_token_padding=False):
+    return Kandinsky5TextEmbedder(conf, device, quantized_qwen, text_token_padding)

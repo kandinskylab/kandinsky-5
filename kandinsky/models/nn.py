@@ -27,15 +27,21 @@ else:
         FA = None
 
 @torch.compile(mode="max-autotune-no-cudagraphs", dynamic=True)
-def sdpa(q, k, v):
+def sdpa(q, k, v, attention_mask):
     query = q.transpose(1, 2).contiguous()
     key = k.transpose(1, 2).contiguous()
     value = v.transpose(1, 2).contiguous()
+    attn_mask = attention_mask.bool().unsqueeze(0).unsqueeze(0)
+    #print(f"attn_mask: {attn_mask.shape}")
+    #print(f"query: {query.shape}")
+    #print(f"key: {key.shape}")
+    #print(f"value: {value.shape}")
     out = (
         F.scaled_dot_product_attention(
             query,
             key,
-            value
+            value,
+            attn_mask=attn_mask
         )
         .transpose(1, 2)
         .contiguous()
@@ -221,21 +227,33 @@ class MultiheadSelfAttentionEnc(nn.Module):
         return q, k
 
     @torch.compile()
-    def scaled_dot_product_attention(self, query, key, value):
-        out = FA(q=query.unsqueeze(0), k=key.unsqueeze(0), v=value.unsqueeze(0))[0].flatten(-2, -1)
+    def scaled_dot_product_attention(self, query, key, value, attention_mask=None):
+        if attention_mask is not None:
+            #print(f"Encoder-attention")
+            out = sdpa(q=query, k=key, v=value, attention_mask=attention_mask)
+            #print(f"out_sdpa: {out.shape}")
+            #out = FA(q=query, k=key, v=value)
+            out = out[0].flatten(-2, -1)
+        else:
+            #print(f"query: {query.shape}")
+            #print(f"key: {key.shape}")
+            #print(f"value: {value.shape}")
+            out = FA(q=query.unsqueeze(0), k=key.unsqueeze(0), v=value.unsqueeze(0))
+            #print(f"out_fa: {out.shape}")
+            out = out[0].flatten(-2, -1)
         return out
 
     @torch.compile()
     def out_l(self, x):
         return self.out_layer(x)
 
-    def forward(self, x, rope):
+    def forward(self, x, rope, attention_mask=None):
         query, key, value = self.get_qkv(x)
         query, key = self.norm_qk(query, key)
         query = apply_rotary(query, rope).type_as(query)
         key = apply_rotary(key, rope).type_as(key)
 
-        out = self.scaled_dot_product_attention(query, key, value)
+        out = self.scaled_dot_product_attention(query, key, value, attention_mask)
 
         out = self.out_l(out)
         return out
@@ -356,19 +374,27 @@ class MultiheadCrossAttention(nn.Module):
         return q, k
 
     @torch.compile()
-    def attention(self, query, key, value):
-        out = FA(q=query.unsqueeze(0), k=key.unsqueeze(0), v=value.unsqueeze(0))[0].flatten(-2, -1)
+    def attention(self, query, key, value, attention_mask=None):
+        if attention_mask is not None:
+            #print(f"Cross-attention")
+            out = sdpa(q=query.unsqueeze(0), k=key, v=value, attention_mask=attention_mask)
+            #print(f"out_sdpa: {out.shape}")
+            out = out[0].flatten(-2, -1)
+        else:
+            out = FA(q=query.unsqueeze(0), k=key.unsqueeze(0), v=value.unsqueeze(0))
+            #print(f"out_fa: {out.shape}")
+            out = out[0].flatten(-2, -1)
         return out
 
     @torch.compile()
     def out_l(self, x):
         return self.out_layer(x)
 
-    def forward(self, x, cond):
+    def forward(self, x, cond, attention_mask=None):
         query, key, value = self.get_qkv(x, cond)
         query, key = self.norm_qk(query, key)
 
-        out = self.attention(query, key, value)
+        out = self.attention(query, key, value, attention_mask)
         out = self.out_l(out)
         return out
 

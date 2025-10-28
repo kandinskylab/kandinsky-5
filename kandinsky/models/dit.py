@@ -30,11 +30,11 @@ class TransformerEncoderBlock(nn.Module):
         self.feed_forward_norm = nn.LayerNorm(model_dim, elementwise_affine=False)
         self.feed_forward = FeedForward(model_dim, ff_dim)
 
-    def forward(self, x, time_embed, rope):
+    def forward(self, x, time_embed, rope, attention_mask=None):
         self_attn_params, ff_params = torch.chunk(self.text_modulation(time_embed), 2, dim=-1)
         shift, scale, gate = torch.chunk(self_attn_params, 3, dim=-1)
         out = apply_scale_shift_norm(self.self_attention_norm, x, scale, shift)
-        out = self.self_attention(out, rope)
+        out = self.self_attention(out, rope, attention_mask)
         x = apply_gate_sum(x, out, gate)
 
         shift, scale, gate = torch.chunk(ff_params, 3, dim=-1)
@@ -58,7 +58,7 @@ class TransformerDecoderBlock(nn.Module):
         self.feed_forward_norm = nn.LayerNorm(model_dim, elementwise_affine=False)
         self.feed_forward = FeedForward(model_dim, ff_dim)
 
-    def forward(self, visual_embed, text_embed, time_embed, rope, sparse_params):
+    def forward(self, visual_embed, text_embed, time_embed, rope, sparse_params, attention_mask=None):
         self_attn_params, cross_attn_params, ff_params = torch.chunk(
             self.visual_modulation(time_embed), 3, dim=-1
         )
@@ -69,7 +69,7 @@ class TransformerDecoderBlock(nn.Module):
 
         shift, scale, gate = torch.chunk(cross_attn_params, 3, dim=-1)
         visual_out = apply_scale_shift_norm(self.cross_attention_norm, visual_embed, scale, shift)
-        visual_out = self.cross_attention(visual_out, text_embed)
+        visual_out = self.cross_attention(visual_out, text_embed, attention_mask)
         visual_embed = apply_gate_sum(visual_embed, visual_out, gate)
 
         shift, scale, gate = torch.chunk(ff_params, 3, dim=-1)
@@ -161,20 +161,21 @@ class DiffusionTransformer3D(nn.Module):
         visual_rope_pos,
         text_rope_pos,
         scale_factor=(1.0, 1.0, 1.0),
-        sparse_params=None
+        sparse_params=None,
+        attention_mask=None
     ):
         text_embed, time_embed, text_rope, visual_embed = self.before_text_transformer_blocks(
             text_embed, time, pooled_text_embed, x, text_rope_pos)
 
         for text_transformer_block in self.text_transformer_blocks:
-            text_embed = text_transformer_block(text_embed, time_embed, text_rope)
+            text_embed = text_transformer_block(text_embed, time_embed, text_rope, attention_mask)
 
         visual_embed, visual_shape, to_fractal, visual_rope = self.before_visual_transformer_blocks(
             visual_embed, visual_rope_pos, scale_factor, sparse_params)
 
         for visual_transformer_block in self.visual_transformer_blocks:
             visual_embed = visual_transformer_block(visual_embed, text_embed, time_embed,
-                                                    visual_rope, sparse_params)
+                                                    visual_rope, sparse_params, attention_mask)
         
         x = self.after_blocks(visual_embed, visual_shape, to_fractal, text_embed, time_embed)
         return x
