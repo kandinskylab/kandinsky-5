@@ -332,6 +332,10 @@ By default we use option --attention_engine=auto which enables automatic selecti
 
 See the instruction [here](comfyui)
 
+### CacheDiT
+
+cache-dit offers Fully Cache Acceleration support for Kandinsky-5 with DBCache, TaylorSeer and Cache CFG. Visit their [example](https://github.com/vipshop/cache-dit/blob/main/examples/pipeline/run_kandinsky5_t2v.py) for more details.
+
 ### Beta testing
 You can apply to participate in the beta testing of the Kandinsky Video Lite via the [telegram bot](https://t.me/kandinsky_access_bot).
 
