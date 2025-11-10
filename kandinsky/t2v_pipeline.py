@@ -1,11 +1,14 @@
-from typing import Union, List
+from typing import Union
 
+import transformers
 import torch
 import torchvision
 from torchvision.transforms import ToPILImage
 
 from .generation_utils import generate_sample
 
+torch._dynamo.config.suppress_errors = True
+torch._dynamo.config.verbose = True
 
 class Kandinsky5T2VPipeline:
     def __init__(
@@ -107,7 +110,7 @@ class Kandinsky5T2VPipeline:
         # SEED
         if seed is None:
             if self.local_dit_rank == 0:
-                seed = torch.randint(2**63 - 1, (1,)).to(self.local_dit_rank)
+                seed = torch.randint(2**32 - 1, (1,)).to(self.local_dit_rank)
             else:
                 seed = torch.empty((1,), dtype=torch.int64).to(self.local_dit_rank)
 
@@ -129,6 +132,7 @@ class Kandinsky5T2VPipeline:
 
         caption = text
         if expand_prompts:
+            transformers.set_seed(seed)
             if self.local_dit_rank == 0:
                 if self.offload:
                     self.text_embedder = self.text_embedder.to(self.device_map["text_embedder"])

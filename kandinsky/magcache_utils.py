@@ -1,6 +1,7 @@
 # This is an adaptation of Magcache from https://github.com/Zehong-Ma/MagCache/
 import numpy as np
 import torch
+from types import MethodType
 
 
 def nearest_interp(src_array, target_length):
@@ -14,8 +15,8 @@ def nearest_interp(src_array, target_length):
 
 
 def set_magcache_params(dit, mag_ratios, num_steps, no_cfg):
-    print(f'using Magcache')
-    dit.__class__.forward = magcache_forward
+    print('using Magcache')
+    dit.forward = MethodType(magcache_forward, dit)
     dit.cnt = 0
     dit.num_steps = num_steps * 2
     dit.magcache_thresh = 0.12
@@ -37,7 +38,6 @@ def set_magcache_params(dit, mag_ratios, num_steps, no_cfg):
         dit.mag_ratios = interpolated_mag_ratios
 
 
-@torch.compile(mode="max-autotune-no-cudagraphs")
 def magcache_forward(
     self,
     x,
@@ -47,13 +47,14 @@ def magcache_forward(
     visual_rope_pos,
     text_rope_pos,
     scale_factor=(1.0, 1.0, 1.0),
-    sparse_params=None
+    sparse_params=None,
+    attention_mask=None
 ):
     text_embed, time_embed, text_rope, visual_embed = self.before_text_transformer_blocks(
         text_embed, time, pooled_text_embed, x, text_rope_pos)
 
     for text_transformer_block in self.text_transformer_blocks:
-        text_embed = text_transformer_block(text_embed, time_embed, text_rope)
+        text_embed = text_transformer_block(text_embed, time_embed, text_rope, attention_mask)
 
     visual_embed, visual_shape, to_fractal, visual_rope = self.before_visual_transformer_blocks(
         visual_embed, visual_rope_pos, scale_factor, sparse_params)
@@ -81,7 +82,7 @@ def magcache_forward(
     else:
         for visual_transformer_block in self.visual_transformer_blocks:
             visual_embed = visual_transformer_block(visual_embed, text_embed, time_embed,
-                                                    visual_rope, sparse_params) 
+                                                    visual_rope, sparse_params, attention_mask) 
         residual_visual_embed = visual_embed - ori_visual_embed
 
     self.residual_cache[self.cnt%2] = residual_visual_embed 

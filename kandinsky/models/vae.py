@@ -1,5 +1,5 @@
 import os
-from math import sqrt
+from math import sqrt, floor, ceil
 from typing import Optional, Tuple, Union, List
 import numpy as np
 import torch
@@ -22,89 +22,6 @@ os.environ["TORCHINDUCTOR_FX_GRAPH_CACHE"] = "1"
 torch.backends.cudnn.allow_tf32 = True
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.benchmark = True
-
-OPT_TEMPORAL_TILING = {
-    1: (1, 1),
-    17: (17, 17),
-    21: (13, 8),
-    25: (17, 8),
-    29: (17, 12),
-    33: (21, 12),
-    37: (21, 16),
-    41: (17, 12),
-    45: (21, 12),
-    49: (17, 8),
-    53: (21, 16),
-    57: (21, 12),
-    61: (13, 8),
-    65: (17, 12),
-    69: (21, 16),
-    73: (17, 8),
-    77: (17, 12),
-    81: (21, 12),
-    85: (21, 16),
-    89: (17, 12),
-    93: (21, 12),
-    97: (17, 8),
-    101: (21, 16),
-    105: (21, 12),
-    109: (13, 8),
-    113: (17, 12),
-    117: (21, 16),
-    121: (17, 8),
-    125: (17, 12),
-    129: (21, 12),
-    133: (21, 16),
-    137: (17, 12),
-    141: (21, 12),
-    145: (17, 8),
-    149: (21, 16),
-    153: (21, 12),
-    157: (13, 8),
-    161: (17, 12),
-    165: (21, 16),
-    169: (17, 8),
-    173: (17, 12),
-    177: (21, 12),
-    181: (21, 16),
-    185: (17, 12),
-    189: (21, 12),
-    193: (17, 8),
-    197: (21, 16),
-    201: (21, 12),
-    205: (13, 8),
-    209: (17, 12),
-    213: (21, 16),
-    217: (17, 8),
-    221: (17, 12),
-    225: (21, 12),
-    229: (21, 16),
-    233: (17, 12),
-    237: (21, 12),
-    241: (17, 8),
-}
-
-OPT_SPATIAL_TILING = {
-    160: (160, 160),
-    192: (192, 192),
-    224: (224, 224),
-    256: (256, 256),
-    288: (288, 288),
-    320: (320, 320),
-    352: (352, 352),
-    384: (384, 384),
-    448: (448, 448),
-    512: (288, 224),
-    576: (320, 256),
-    640: (352, 288),
-    704: (384, 320),
-    768: (416, 352),
-    896: (480, 416),
-    1024: (544, 480),
-    1152: (608, 544),
-    1280: (672, 608),
-    1408: (736, 672),
-}
 
 
 def prepare_causal_attention_mask(
@@ -181,7 +98,7 @@ class HunyuanVideoUpsampleCausal3D(nn.Module):
         self.conv = HunyuanVideoCausalConv3d(
             in_channels, out_channels, kernel_size, stride, bias=bias
         )
-    @torch.compile(dynamic=True)
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         num_frames = hidden_states.size(2)
         dtp = hidden_states.dtype
@@ -257,7 +174,7 @@ class HunyuanVideoResnetBlockCausal3D(nn.Module):
             self.conv_shortcut = HunyuanVideoCausalConv3d(
                 in_channels, out_channels, 1, 1, 0
             )
-    @torch.compile(dynamic=True)
+    
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         dtp = hidden_states.dtype
         hidden_states = hidden_states.contiguous()
@@ -1250,23 +1167,46 @@ class AutoencoderKLHunyuanVideo(ModelMixin, ConfigMixin):
         self, shape: List[int]
     ) -> Tuple[Tuple[int, int, int, int], Tuple[int, int, int]]:
         """Returns optimal tiling for given shape."""
-        _, _, num_frames, height, width = shape
+        h, w = shape[3:]
 
-        if (sqrt(height * width) < 450) and (num_frames <= 97):
-            ft, fs = num_frames, num_frames
+        free_mem = torch.cuda.mem_get_info()[0]
+        max_area = free_mem / 256 / 17 / 8
+
+        if h * w < max_area:
+            return (1, 17, h, w), (8, h, w)
+
+        def factorize(n, k):
+            a = sqrt(n / k)
+            b = sqrt(n * k)
+            aa = [floor(a), ceil(a)]
+            bb = [floor(b), ceil(b)]
+            for a in aa:
+                for b in bb:
+                    if a * b >= n:
+                        return a, b
+
+        k = max(h / w, w / h)
+        N = ceil(h * w / max_area)
+        a, b = factorize(N, k)
+        if h >= w:
+            wn, hn = a, b
         else:
-            ft = OPT_TEMPORAL_TILING[num_frames][0]
-            fs = OPT_TEMPORAL_TILING[num_frames][1]
+            wn, hn = b, a
 
-        if sqrt(height * width) > 500:
-            ht = OPT_SPATIAL_TILING[height][0]
-            hs = OPT_SPATIAL_TILING[height][1]
-            wt = OPT_SPATIAL_TILING[width][0]
-            ws = OPT_SPATIAL_TILING[width][1]
+        if wn > 1:
+            wt = ceil(w / wn / 8) * 8 + 16
+            ws = wt - 32
         else:
-            ht, hs, wt, ws = height, height, width, width
+            wt = w
+            ws = w
+        if hn > 1:
+            ht = ceil(h / hn / 8) * 8 + 16
+            hs = ht - 32
+        else:
+            ht = h
+            hs = h
 
-        return (1, ft, ht, wt), (fs, hs, ws)
+        return (1, 17, ht, wt), (hs, ws, 8)
 
     def get_dec_optimal_tiling(
         self, shape: List[int]

@@ -150,7 +150,7 @@ class Modulation(nn.Module):
         return self.out_layer(self.activation(x))
 
 class MultiheadSelfAttentionEnc(nn.Module):
-    def __init__(self, num_channels, head_dim, attention_engine="auto"):
+    def __init__(self, num_channels, head_dim):
         super().__init__()
         assert num_channels % head_dim == 0
         self.num_heads = num_channels // head_dim
@@ -163,7 +163,7 @@ class MultiheadSelfAttentionEnc(nn.Module):
 
         self.out_layer = nn.Linear(num_channels, num_channels, bias=True)
 
-        self.attn_engine = SelfAttentionEngine(attention_engine)
+        self.attn_engine = SelfAttentionEngine("sdpa")
 
     @torch.compile()
     def get_qkv(self, x):
@@ -185,24 +185,25 @@ class MultiheadSelfAttentionEnc(nn.Module):
         return q, k
 
     @torch.compile()
-    def scaled_dot_product_attention(self, query, key, value):
+    def scaled_dot_product_attention(self, query, key, value, attention_mask=None):
         out = self.attn_engine.get_attention()(
-            q=query.unsqueeze(0),
-            k=key.unsqueeze(0),
-            v=value.unsqueeze(0))[0].flatten(-2, -1)
+            q=query,
+            k=key,
+            v=value,
+            attn_mask=attention_mask)[0].flatten(-2, -1)
         return out
 
     @torch.compile()
     def out_l(self, x):
         return self.out_layer(x)
 
-    def forward(self, x, rope):
+    def forward(self, x, rope, attention_mask=None):
         query, key, value = self.get_qkv(x)
         query, key = self.norm_qk(query, key)
         query = apply_rotary(query, rope).type_as(query)
         key = apply_rotary(key, rope).type_as(key)
 
-        out = self.scaled_dot_product_attention(query, key, value)
+        out = self.scaled_dot_product_attention(query, key, value, attention_mask)
 
         out = self.out_l(out)
         return out
@@ -295,7 +296,7 @@ class MultiheadSelfAttentionDec(nn.Module):
 
 
 class MultiheadCrossAttention(nn.Module):
-    def __init__(self, num_channels, head_dim, attention_engine="auto"):
+    def __init__(self, num_channels, head_dim):
         super().__init__()
         assert num_channels % head_dim == 0
         self.num_heads = num_channels // head_dim
@@ -308,7 +309,7 @@ class MultiheadCrossAttention(nn.Module):
 
         self.out_layer = nn.Linear(num_channels, num_channels, bias=True)
 
-        self.attn_engine = SelfAttentionEngine(attention_engine)
+        self.attn_engine = SelfAttentionEngine("sdpa")
 
     @torch.compile()
     def get_qkv(self, x, cond):
@@ -330,22 +331,23 @@ class MultiheadCrossAttention(nn.Module):
         return q, k
 
     @torch.compile()
-    def attention(self, query, key, value):
+    def attention(self, query, key, value, attention_mask=None):
         out = self.attn_engine.get_attention()(
             q=query.unsqueeze(0),
-            k=key.unsqueeze(0),
-            v=value.unsqueeze(0))[0].flatten(-2, -1)
+            k=key,
+            v=value,
+            attn_mask=attention_mask)[0].flatten(-2, -1)
         return out
 
     @torch.compile()
     def out_l(self, x):
         return self.out_layer(x)
 
-    def forward(self, x, cond):
+    def forward(self, x, cond, attention_mask=None):
         query, key, value = self.get_qkv(x, cond)
         query, key = self.norm_qk(query, key)
 
-        out = self.attention(query, key, value)
+        out = self.attention(query, key, value, attention_mask)
         out = self.out_l(out)
         return out
 

@@ -49,31 +49,36 @@ def get_velocity(
     guidance_weight,
     conf,
     sparse_params=None,
+    attention_mask=None,
+    null_attention_mask=None,
 ):
-    pred_velocity = dit(
-        x,
-        text_embeds["text_embeds"],
-        text_embeds["pooled_embed"],
-        t * 1000,
-        visual_rope_pos,
-        text_rope_pos,
-        scale_factor=conf.metrics.scale_factor,
-        sparse_params=sparse_params,
-    )
-    if abs(guidance_weight - 1.0) > 1e-6:
-        uncond_pred_velocity = dit(
+    with torch._dynamo.utils.disable_cache_limit():
+        pred_velocity = dit(
             x,
-            null_text_embeds["text_embeds"],
-            null_text_embeds["pooled_embed"],
+            text_embeds["text_embeds"],
+            text_embeds["pooled_embed"],
             t * 1000,
             visual_rope_pos,
-            null_text_rope_pos,
+            text_rope_pos,
             scale_factor=conf.metrics.scale_factor,
             sparse_params=sparse_params,
+            attention_mask=attention_mask,
         )
-        pred_velocity = uncond_pred_velocity + guidance_weight * (
-            pred_velocity - uncond_pred_velocity
-        )
+        if abs(guidance_weight - 1.0) > 1e-6:
+            uncond_pred_velocity = dit(
+                x,
+                null_text_embeds["text_embeds"],
+                null_text_embeds["pooled_embed"],
+                t * 1000,
+                visual_rope_pos,
+                null_text_rope_pos,
+                scale_factor=conf.metrics.scale_factor,
+                sparse_params=sparse_params,
+                attention_mask=null_attention_mask,
+            )
+            pred_velocity = uncond_pred_velocity + guidance_weight * (
+                pred_velocity - uncond_pred_velocity
+            )
     return pred_velocity
 
 
@@ -90,9 +95,12 @@ def generate(
     null_text_rope_pos,
     guidance_weight,
     scheduler_scale,
+    first_frames,
     conf,
     progress=False,
     seed=6554,
+    attention_mask=None,
+    null_attention_mask=None,
 ):
     g = torch.Generator(device="cuda")
     g.manual_seed(seed)
@@ -109,6 +117,10 @@ def generate(
             visual_cond_mask = torch.zeros(
                 [*img.shape[:-1], 1], dtype=img.dtype, device=img.device
             )
+            if first_frames is not None:
+                first_frames = first_frames.to(device=visual_cond.device, dtype=visual_cond.dtype)
+                img[:1] = first_frames
+                visual_cond_mask[:1] = 1
             model_input = torch.cat([img, visual_cond, visual_cond_mask], dim=-1)
         else:
             model_input = img
@@ -124,6 +136,8 @@ def generate(
             guidance_weight,
             conf,
             sparse_params=sparse_params,
+            attention_mask=attention_mask,
+            null_attention_mask=null_attention_mask,
         )
         img = img + timestep_diff * pred_velocity
     return img
@@ -152,18 +166,18 @@ def generate_sample(
         type_of_content = "image"
     else:
         type_of_content = "video"
-        
+
     with torch.no_grad():
-        bs_text_embed, text_cu_seqlens = text_embedder.encode(
+        bs_text_embed, text_cu_seqlens, attention_mask = text_embedder.encode(
             [caption], type_of_content=type_of_content
         )
-        bs_null_text_embed, null_text_cu_seqlens = text_embedder.encode(
+        bs_null_text_embed, null_text_cu_seqlens, null_attention_mask = text_embedder.encode(
             [negative_caption], type_of_content=type_of_content
         )
 
     if offload:
         text_embedder = text_embedder.to('cpu')
-        
+
     for key in bs_text_embed:
         bs_text_embed[key] = bs_text_embed[key].to(device=device)
         bs_null_text_embed[key] = bs_null_text_embed[key].to(device=device)
@@ -195,11 +209,121 @@ def generate_sample(
                 null_text_rope_pos,
                 guidance_weight,
                 scheduler_scale,
+                None,
                 conf,
                 seed=seed,
                 progress=progress,
+                attention_mask=attention_mask,
+                null_attention_mask=null_attention_mask,
             )
             
+    if offload:
+        dit = dit.to('cpu', non_blocking=True)
+    torch.cuda.empty_cache()
+
+    if offload:
+        vae = vae.to(vae_device, non_blocking=True)
+
+    with torch.no_grad():
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            images = latent_visual.reshape(
+                bs,
+                -1,
+                latent_visual.shape[-3],
+                latent_visual.shape[-2],
+                latent_visual.shape[-1],
+            )
+            images = images.to(device=vae_device)
+            images = (images / vae.config.scaling_factor).permute(0, 4, 1, 2, 3)
+            images = vae.decode(images).sample
+            images = ((images.clamp(-1.0, 1.0) + 1.0) * 127.5).to(torch.uint8)
+
+    if offload:
+        vae = vae.to('cpu', non_blocking=True)
+    torch.cuda.empty_cache()
+
+    return images
+
+def generate_sample_i2v(
+    shape,
+    caption,
+    dit,
+    vae,
+    conf,
+    text_embedder,
+    images,
+    num_steps=50,
+    guidance_weight=5.0,
+    scheduler_scale=1,
+    negative_caption="",
+    seed=6554,
+    device="cuda",
+    vae_device="cuda",
+    progress=True,
+    offload=False,
+):
+    old_mode = text_embedder.embedder.mode
+    text_embedder.embedder.mode = "i2v"
+
+    bs, duration, height, width, dim = shape
+    if duration == 1:
+        type_of_content = "image"
+    else:
+        type_of_content = "video"
+        
+    with torch.no_grad():
+        bs_text_embed, text_cu_seqlens, attention_mask = text_embedder.encode(
+            [caption], type_of_content=type_of_content
+        )
+        bs_null_text_embed, null_text_cu_seqlens, null_attention_mask = text_embedder.encode(
+            [negative_caption], type_of_content=type_of_content
+        )
+
+    if offload:
+        text_embedder = text_embedder.to('cpu')
+        
+    for key in bs_text_embed:
+        bs_text_embed[key] = bs_text_embed[key].to(device=device)
+        bs_null_text_embed[key] = bs_null_text_embed[key].to(device=device)
+    text_cu_seqlens = text_cu_seqlens.to(device=device)[-1].item()
+    null_text_cu_seqlens = null_text_cu_seqlens.to(device=device)[-1].item()
+
+    visual_rope_pos = [
+        torch.arange(duration),
+        torch.arange(shape[-3] // conf.model.dit_params.patch_size[1]),
+        torch.arange(shape[-2] // conf.model.dit_params.patch_size[2]),
+    ]
+    text_rope_pos = torch.arange(text_cu_seqlens)
+    null_text_rope_pos = torch.arange(null_text_cu_seqlens)
+
+    if offload:
+        dit.to(device, non_blocking=True)
+
+    with torch.no_grad():
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            latent_visual = generate(
+                dit,
+                device,
+                (bs * duration, height, width, dim),
+                num_steps,
+                bs_text_embed,
+                bs_null_text_embed,
+                visual_rope_pos,
+                text_rope_pos,
+                null_text_rope_pos,
+                guidance_weight,
+                scheduler_scale,
+                images,
+                conf,
+                seed=seed,
+                progress=progress,
+                attention_mask=attention_mask,
+                null_attention_mask=null_attention_mask,
+            )
+            if images is not None:
+                images = images.to(device=latent_visual.device, dtype=latent_visual.dtype)
+                latent_visual[:1] = images
+
     if offload:
         dit = dit.to('cpu', non_blocking=True)
     torch.cuda.empty_cache()

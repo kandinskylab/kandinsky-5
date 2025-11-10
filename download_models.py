@@ -55,6 +55,12 @@ if __name__ == "__main__":
         local_dir=cache_dir,
     )
     
+    dit_path = snapshot_download(
+        repo_id="ai-forever/Kandinsky-5.0-I2V-Lite-5s",
+        allow_patterns="model/*",
+        local_dir=cache_dir,
+    )
+
     vae_path = snapshot_download(
         repo_id="hunyuanvideo-community/HunyuanVideo",
         allow_patterns="vae/*",

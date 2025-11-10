@@ -21,7 +21,7 @@ except:
     sageattention = None
 
 @torch.compile(mode="max-autotune-no-cudagraphs", dynamic=True)
-def sdpa(q, k, v):
+def sdpa(q, k, v, attn_mask=None):
     query = q.transpose(1, 2).contiguous()
     key = k.transpose(1, 2).contiguous()
     value = v.transpose(1, 2).contiguous()
@@ -29,7 +29,8 @@ def sdpa(q, k, v):
         F.scaled_dot_product_attention(
             query,
             key,
-            value
+            value,
+            attn_mask=attn_mask
         )
         .transpose(1, 2)
         .contiguous()

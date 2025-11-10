@@ -8,7 +8,7 @@ pydantic
 aiohttp
 websocket-client
 beautifulsoup4
-torch >= 2.8.0
+torch == 2.8.0
 torchvision
 transformers >= 4.56.2
 diffusers
@@ -25,3 +25,4 @@ omegaconf
 ninja
 numpy
 bitsandbytes
+peft

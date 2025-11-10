@@ -7,12 +7,12 @@
 </div>
 
 <div align="center">
-  <a href="https://habr.com/ru/companies/sberbank/articles/951800/">Habr</a> | <a href="https://ai-forever.github.io/Kandinsky-5/">Project Page</a> | Technical Report (soon) | <a href=https://huggingface.co/collections/ai-forever/kandisnky-50-t2v-lite-68d71892d2cc9b02177e5ae5> 🤗 Weights </a> | <a href="https://huggingface.co/collections/ai-forever/kandinsky-50-t2v-lite-diffusers-68dd73ebac816748ed79d6cb"> 🤗 Hugging Face </a>  | <a href="https://github.com/ai-forever/Kandinsky-5/blob/main/comfyui/README.md">ComfyUI README</a>
+  <a href="https://habr.com/ru/companies/sberbank/articles/951800/">Habr</a> | <a href="https://ai-forever.github.io/Kandinsky-5/">Project Page</a> | Technical Report (soon) | <a href=https://huggingface.co/collections/ai-forever/kandisnky-50-t2v-lite-68d71892d2cc9b02177e5ae5> 🤗 Weights </a> | <a href="https://huggingface.co/collections/ai-forever/kandinsky-50-t2v-lite-diffusers-68dd73ebac816748ed79d6cb"> 🤗 Diffusers weights </a>  | <a href="https://github.com/ai-forever/Kandinsky-5/blob/main/comfyui/README.md">ComfyUI README</a>
 </div>
 
 <h1>Kandinsky 5.0: A family of diffusion models for Video & Image generation</h1>
 
-In this repository, we provide a family of diffusion models to generate a video or an image (<em>Coming Soon</em>) given a textual prompt and distilled model for faster generation.
+In this repository, we provide a family of diffusion models to generate a video or an image given a textual prompt and distilled model for faster generation.
 
 https://github.com/user-attachments/assets/b9ff0417-02a4-4f6b-aacc-60c44e7fe6f1
 
@@ -67,6 +67,7 @@ All models are available in two versions: for generating 5-second and 10-second 
 | Kandinsky 5.0 T2V Lite no-CFG 10s   |configs/config_10s_nocfg.yaml| 10s            | 50  |🤗 [HF](https://huggingface.co/ai-forever/Kandinsky-5.0-T2V-Lite-nocfg-10s) |     124 s      |
 | Kandinsky 5.0 T2V Lite distill 5s   |configs/config_5s_distil.yaml| 5s             | 16  | 🤗 [HF](https://huggingface.co/ai-forever/Kandinsky-5.0-T2V-Lite-distilled16steps-5s)|       35 s     |
 | Kandinsky 5.0 T2V Lite distill 10s  |configs/config_10s_distil.yaml| 10s            | 16  | 🤗 [HF](https://huggingface.co/ai-forever/Kandinsky-5.0-T2V-Lite-distilled16steps-10s)|      61 s      |              |
+| Kandinsky 5.0 I2V Lite 5s  |configs/config_5s_i2v.yaml| 5s            | 100  | 🤗 [HF](https://huggingface.co/ai-forever/Kandinsky-5.0-I2V-Lite-5s)|      73 s      |              |
 
 *Latency was measured after the second inference run. The first run of the model can be slower due to the compilation process. Inference was measured on an NVIDIA H100 GPU with 80 GB of memory, using CUDA 12.8.1 and PyTorch 2.8. For 5-second models Flash Attention 3 was used.
 
@@ -239,11 +240,16 @@ python test.py --config ./configs/config_5s_distil.yaml --prompt "A dog in red h
 python test.py --config ./configs/config_10s_distil.yaml --prompt "A dog in red hat" --video_duration 10
 ```
 
-### Inference
+#### Run Kandinsky 5.0 I2V Lite 5s
+
+```sh
+python test.py --config configs/config_5s_i2v.yaml --prompt "The Dragon breaths fire." --image "./assets/test_image.jpg" --video_duration 5
+```
+
+### T2V Inference
 
 ```python
 import torch
-from IPython.display import Video
 from kandinsky import get_T2V_pipeline
 
 device_map = {
@@ -262,11 +268,32 @@ images = pipe(
     save_path="./test.mp4",
     text="A cat in a red hat",
 )
-
-Video("./test.mp4")
 ```
 
-Please, refer to [inference_example.ipynb](inference_example.ipynb) notebook for more usage details.
+### I2V Inference
+
+```python
+import torch
+from kandinsky import get_I2V_pipeline
+
+device_map = {
+    "dit": torch.device('cuda:0'), 
+    "vae": torch.device('cuda:0'), 
+    "text_embedder": torch.device('cuda:0')
+}
+
+pipe = get_I2V_pipeline(device_map, conf_path="configs/config_5s_i2v.yaml")
+
+images = pipe(
+    seed=42,
+    time_length=5,
+    save_path='./test.mp4',
+    text="The Dragon breaths fire.",
+    image = "assets/test_image.jpg",
+)
+```
+
+Please, refer to [inference_example.ipynb](inference_example.ipynb)/[inference_example_i2v.ipynb](inference_example_i2v.ipynb) notebooks for more usage details.
 
 ### Distributed Inference
 
@@ -343,18 +370,18 @@ You can apply to participate in the beta testing of the Kandinsky Video Lite via
 - Kandinsky 5.0 Lite Text-to-Video
     - [x] Multi-GPU Inference code of the 2B models
     - [ ] Checkpoints 2B models
-      - [x]  pretrain
+      - [x] pretrain
       - [x] sft
       - [ ] rl
       - [x] cfg distil 
       - [x] distil 16 steps
       - [ ] autoregressive generation
     - [x] ComfyUI integration
-    - [ ] Diffusers integration
-    - [ ] Caching acceleration support
+    - [x] Diffusers integration
+    - [x] Caching acceleration support
 - Kandinsky 5.0 Lite Image-to-Video
     - [ ] Multi-GPU Inference code of the 2B model
-    - [ ] Checkpoints of the 2B model
+    - [x] Checkpoints of the 2B model
     - [ ] ComfyUI integration
     - [ ] Diffusers integration
 - Kandinsky 5.0 Pro Text-to-Video

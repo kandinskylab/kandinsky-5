@@ -5,7 +5,7 @@ import logging
 
 import torch
 
-from kandinsky import get_T2V_pipeline
+from kandinsky import get_T2V_pipeline, get_I2V_pipeline
 
 
 def validate_args(args):
@@ -47,7 +47,13 @@ def parse_args():
     parser.add_argument(
         "--prompt",
         type=str,
-        default="a cat in a blue hat",
+        default="The Dragon breaths fire.",
+        help="The prompt to generate video"
+    )
+    parser.add_argument(
+        "--image",
+        type=str,
+        default="./assets/test_image.jpg",
         help="The prompt to generate video"
     )
     parser.add_argument(
@@ -141,21 +147,42 @@ if __name__ == "__main__":
     args = parse_args()
     validate_args(args)
 
-    pipe = get_T2V_pipeline(
-        device_map={"dit": "cuda:0", "vae": "cuda:0",
-                    "text_embedder": "cuda:0"},
-        conf_path=args.config,
-        offload=args.offload,
-        magcache=args.magcache,
-        quantized_qwen=args.qwen_quantization,
-        attention_engine=args.attention_engine,
-    )
+    if "i2v" in args.config:
+        pipe = get_I2V_pipeline(
+            device_map={"dit": "cuda:0", "vae": "cuda:0",
+                        "text_embedder": "cuda:0"},
+            conf_path=args.config,
+            offload=args.offload,
+            magcache=args.magcache,
+            quantized_qwen=args.qwen_quantization,
+            attention_engine=args.attention_engine,
+        )
+    else:
+        pipe = get_T2V_pipeline(
+            device_map={"dit": "cuda:0", "vae": "cuda:0",
+                        "text_embedder": "cuda:0"},
+            conf_path=args.config,
+            offload=args.offload,
+            magcache=args.magcache,
+            quantized_qwen=args.qwen_quantization,
+            attention_engine=args.attention_engine,
+        )
 
     if args.output_filename is None:
         args.output_filename = "./" + args.prompt.replace(" ", "_") + ".mp4"
 
     start_time = time.perf_counter()
-    x = pipe(args.prompt,
+    if "i2v" in args.config:
+        x = pipe(args.prompt,
+                 image=args.image,
+                 time_length=args.video_duration,
+                 num_steps=args.sample_steps,
+                 guidance_weight=args.guidance_weight,
+                 scheduler_scale=args.scheduler_scale,
+                 expand_prompts=args.expand_prompt,
+                 save_path=args.output_filename)
+    else:
+        x = pipe(args.prompt,
              time_length=args.video_duration,
              width=args.width,
              height=args.height,
