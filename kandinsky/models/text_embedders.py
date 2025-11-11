@@ -190,7 +190,7 @@ class Kandinsky5TextEmbedder:
     def encode(self, texts, images=None, type_of_content="image"):
         text_embeds, cu_seqlens, attention_mask = self.embedder(texts, images=images, type_of_content=type_of_content)
         pooled_embed = self.clip_embedder(texts)
-        return {"text_embeds": text_embeds, "pooled_embed": pooled_embed}, cu_seqlens, attention_mask.to(torch.bfloat16)
+        return {"text_embeds": text_embeds, "pooled_embed": pooled_embed}, cu_seqlens, attention_mask.to(torch.bool)
 
     def to(self, device):
         self.embedder.model = self.embedder.model.to(device)

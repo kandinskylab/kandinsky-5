@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument(
         "--prompt",
         type=str,
-        default="The Dragon breaths fire.",
+        default="The dragon soars into the sunset sky.",
         help="The prompt to generate video"
     )
     parser.add_argument(
@@ -111,6 +111,12 @@ def parse_args():
         type=str,
         default="./test.mp4",
         help="Name of the resulting file"
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=1137,
+        help="Seed for the random number generator"
     )
 
     parser.add_argument(
@@ -180,7 +186,8 @@ if __name__ == "__main__":
                  guidance_weight=args.guidance_weight,
                  scheduler_scale=args.scheduler_scale,
                  expand_prompts=args.expand_prompt,
-                 save_path=args.output_filename)
+                 save_path=args.output_filename,
+                 seed=args.seed)
     else:
         x = pipe(args.prompt,
              time_length=args.video_duration,
@@ -190,7 +197,8 @@ if __name__ == "__main__":
              guidance_weight=args.guidance_weight,
              scheduler_scale=args.scheduler_scale,
              expand_prompts=args.expand_prompt,
-             save_path=args.output_filename)
+             save_path=args.output_filename,
+             seed=args.seed)
     print(f"TIME ELAPSED: {time.perf_counter() - start_time}")
     print(f"Generated video is saved to {args.output_filename}")
     
