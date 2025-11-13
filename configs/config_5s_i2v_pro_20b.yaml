@@ -6,7 +6,8 @@ metrics:
   resolution: 512
 
 model:
-  # Path to the 20B DiT weights - UPDATE THIS PATH
+  # Path to the 20B DiT weights
+  # For diffusers format, point to the transformer subdirectory
   checkpoint_path: "Kandinsky-5.0-I2V-Pro-sft-5s-Diffusers/transformer"
   num_steps: 50
   guidance_weight: 5.0
@@ -48,16 +49,17 @@ model:
     wW: 3
     wH: 3
 
-  # VAE configuration (same as 2B)
+  # VAE configuration
   vae:
     checkpoint_path: "Kandinsky-5.0-I2V-Pro-sft-5s-Diffusers/vae"
     name: "hunyuan"
 
-  # Text embedder configuration (same as 2B)
+  # Text embedder configuration
+  # For diffusers format: use root directory so transformers can find all components
   text_embedder:
     qwen:
       emb_size: 3584
-      checkpoint_path: "Kandinsky-5.0-I2V-Pro-sft-5s-Diffusers/text_encoder"
+      checkpoint_path: "Kandinsky-5.0-I2V-Pro-sft-5s-Diffusers"
       max_length: 256
     clip:
       checkpoint_path: "Kandinsky-5.0-I2V-Pro-sft-5s-Diffusers/text_encoder_2"
