@@ -15,16 +15,33 @@ torch._dynamo.config.verbose = True
 
 MAX_AREA = 768*512
 
-def resize_image(image, max_area):
+def resize_image(image, max_area, alignment=16):
+    """
+    Resize image to fit within max_area while maintaining aspect ratio.
+
+    Args:
+        image: Input tensor image
+        max_area: Maximum allowed area (height * width)
+        alignment: Pixel alignment requirement (default 16, use 128 for NABLA attention)
+    """
     h, w = image.shape[2:]
     area = h * w
-    k = sqrt(max_area / area) / 16
-    new_h = int(floor(h * k) * 16)
-    new_w = int(floor(w * k) * 16)
+    k = sqrt(max_area / area) / alignment
+    new_h = int(floor(h * k) * alignment)
+    new_w = int(floor(w * k) * alignment)
     return F.resize(image, (new_h, new_w)), k
 
 
-def get_first_frame_from_image(image, vae, device):
+def get_first_frame_from_image(image, vae, device, alignment=16):
+    """
+    Load and encode an image to latent space.
+
+    Args:
+        image: Path to image or PIL Image
+        vae: VAE model
+        device: Device to use
+        alignment: Pixel alignment for resizing (use 128 for NABLA attention)
+    """
     if isinstance(image, str):
         pil_image = Image.open(image).convert('RGB')
     elif isinstance(image, Image.Image):
@@ -33,7 +50,7 @@ def get_first_frame_from_image(image, vae, device):
         raise ValueError(f"unknown image type: {type(image)}")
 
     image = F.pil_to_tensor(pil_image).unsqueeze(0)
-    image, k = resize_image(image, max_area=MAX_AREA)
+    image, k = resize_image(image, max_area=MAX_AREA, alignment=alignment)
     image = image / 127.5 - 1.
 
     with torch.no_grad():
@@ -103,9 +120,13 @@ class Kandinsky5I2VPipeline:
         # PREPARATION
         num_frames = 1 if time_length == 0 else time_length * 24 // 4 + 1
 
+        # For NABLA attention with fractal flattening, need 128-pixel alignment
+        # For other attention types, 16-pixel alignment is sufficient
+        alignment = 128 if getattr(self.conf.model.attention, 'type', 'flash') == 'nabla' else 16
+
         if self.offload:
             self.vae = self.vae.to(self.device_map["vae"], non_blocking=True)
-        image, image_lat, k = get_first_frame_from_image(image, self.vae, self.device_map["vae"])
+        image, image_lat, k = get_first_frame_from_image(image, self.vae, self.device_map["vae"], alignment=alignment)
         if self.offload:
             self.vae = self.vae.to("cpu", non_blocking=True)
 
