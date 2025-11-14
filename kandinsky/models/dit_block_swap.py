@@ -96,26 +96,32 @@ class DiffusionTransformer3DBlockSwap(DiffusionTransformer3D):
             self.visual_transformer_blocks[idx].to('cpu', non_blocking=True)
         self._blocks_on_gpu.clear()
 
+    def _apply(self, fn, recurse=True):
+        if self.enable_block_swap and recurse:
+            self.time_embeddings = self.time_embeddings._apply(fn)
+            self.text_embeddings = self.text_embeddings._apply(fn)
+            self.pooled_text_embeddings = self.pooled_text_embeddings._apply(fn)
+            self.visual_embeddings = self.visual_embeddings._apply(fn)
+            self.text_rope_embeddings = self.text_rope_embeddings._apply(fn)
+            self.visual_rope_embeddings = self.visual_rope_embeddings._apply(fn)
+            self.out_layer = self.out_layer._apply(fn)
+
+            for i, block in enumerate(self.text_transformer_blocks):
+                self.text_transformer_blocks[i] = block._apply(fn)
+
+            return self
+        else:
+            return super()._apply(fn, recurse=recurse)
+
     def to(self, device, **kwargs):
-        """Override to track device and initialize block swapping"""
-        self._device = device if isinstance(device, torch.device) else torch.device(device)
+        if isinstance(device, str):
+            device = torch.device(device)
 
-        if self.enable_block_swap and device != 'cpu':
-            # Move core components to GPU
-            self.time_embeddings.to(device, **kwargs)
-            self.text_embeddings.to(device, **kwargs)
-            self.pooled_text_embeddings.to(device, **kwargs)
-            self.visual_embeddings.to(device, **kwargs)
-            self.text_rope_embeddings.to(device, **kwargs)
-            self.visual_rope_embeddings.to(device, **kwargs)
-            self.out_layer.to(device, **kwargs)
+        self._device = device
 
-            # Move text transformer blocks (these are few, keep them all on GPU)
-            for block in self.text_transformer_blocks:
-                block.to(device, **kwargs)
+        if self.enable_block_swap and device.type != 'cpu':
+            super().to(device, **kwargs)
 
-            # For visual transformer blocks, prefetch first few blocks
-            # Keep rest on CPU
             for i in range(self.num_visual_blocks):
                 self.visual_transformer_blocks[i].to('cpu', **kwargs)
 
@@ -123,7 +129,6 @@ class DiffusionTransformer3DBlockSwap(DiffusionTransformer3D):
             self._prefetch_blocks(0, device)
 
         else:
-            # Normal behavior - move everything
             return super().to(device, **kwargs)
 
         return self

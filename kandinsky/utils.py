@@ -432,12 +432,10 @@ def get_I2V_pipeline_with_block_swap(
             no_cfg = True
         set_magcache_params(dit, mag_ratios, num_steps, no_cfg)
 
-    # Load weights
     print(f"Loading DiT weights from {conf.model.checkpoint_path}")
     state_dict = load_file(conf.model.checkpoint_path)
     dit.load_state_dict(state_dict, assign=True)
 
-    # Move to device with block swapping support
     if not offload:
         dit = dit.to(device_map["dit"])
 
