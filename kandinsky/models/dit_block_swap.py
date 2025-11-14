@@ -86,6 +86,16 @@ class DiffusionTransformer3DBlockSwap(DiffusionTransformer3D):
         for i in range(start_idx, min(start_idx + num_blocks, self.num_visual_blocks)):
             self._ensure_block_on_gpu(i, device)
 
+    def offload_all_blocks(self):
+        """Offload all visual transformer blocks from GPU to CPU"""
+        if not self.enable_block_swap:
+            return
+
+        # Offload all blocks that are currently on GPU
+        for idx in list(self._blocks_on_gpu):
+            self.visual_transformer_blocks[idx].to('cpu', non_blocking=True)
+        self._blocks_on_gpu.clear()
+
     def to(self, device, **kwargs):
         """Override to track device and initialize block swapping"""
         self._device = device if isinstance(device, torch.device) else torch.device(device)

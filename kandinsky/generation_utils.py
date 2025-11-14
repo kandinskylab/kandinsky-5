@@ -331,6 +331,11 @@ def generate_sample_i2v(
                 images = images.to(device=latent_visual.device, dtype=latent_visual.dtype)
                 latent_visual[:1] = images
 
+    # Offload DiT before VAE decode to free up VRAM
+    # For block swapping, explicitly offload all blocks first
+    if hasattr(dit, 'offload_all_blocks'):
+        dit.offload_all_blocks()
+
     if offload:
         dit = dit.to('cpu', non_blocking=True)
     torch.cuda.empty_cache()
