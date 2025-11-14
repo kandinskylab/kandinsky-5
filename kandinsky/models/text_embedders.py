@@ -13,11 +13,11 @@ from .utils import freeze
 
 
 class ClipTextEmbedder:
-    def __init__(self, conf, device):
+    def __init__(self, conf, device, dtype=torch.bfloat16):
         # Support separate paths for model and tokenizer (for diffusers format)
         tokenizer_path = getattr(conf, 'tokenizer_path', conf.checkpoint_path)
 
-        self.model = CLIPTextModel.from_pretrained(conf.checkpoint_path).to(device)
+        self.model = CLIPTextModel.from_pretrained(conf.checkpoint_path, torch_dtype=dtype).to(device)
         self.model = freeze(self.model)
         self.tokenizer = CLIPTokenizer.from_pretrained(tokenizer_path)
         self.max_length = conf.max_length
@@ -85,12 +85,12 @@ class Qwen2_5_VLTextEmbedder:
         },
     }
 
-    def __init__(self, conf, device, quantized_qwen=False, text_token_padding=True):
+    def __init__(self, conf, device, quantized_qwen=False, text_token_padding=True, dtype=torch.bfloat16):
         quantization_config = None
         if quantized_qwen:
             quantization_config = BitsAndBytesConfig(
                 load_in_4bit=True,
-                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_compute_dtype=dtype,
                 bnb_4bit_use_double_quant=True,
                 bnb_4bit_quant_type="nf4"
             )
@@ -101,7 +101,7 @@ class Qwen2_5_VLTextEmbedder:
 
         self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
             conf.checkpoint_path,
-            dtype=torch.bfloat16,
+            dtype=dtype,
             device_map=device,
             quantization_config=quantization_config
         )
@@ -200,9 +200,9 @@ class Qwen2_5_VLTextEmbedder:
 
 
 class Kandinsky5TextEmbedder:
-    def __init__(self, conf, device="cpu", quantized_qwen=False, text_token_padding=True):
-        self.embedder = Qwen2_5_VLTextEmbedder(conf.qwen, device, quantized_qwen, text_token_padding)
-        self.clip_embedder = ClipTextEmbedder(conf.clip, device)
+    def __init__(self, conf, device="cpu", quantized_qwen=False, text_token_padding=True, dtype=torch.bfloat16):
+        self.embedder = Qwen2_5_VLTextEmbedder(conf.qwen, device, quantized_qwen, text_token_padding, dtype)
+        self.clip_embedder = ClipTextEmbedder(conf.clip, device, dtype)
         self.conf = conf
 
     def encode(self, texts, images=None, type_of_content="image"):
@@ -216,5 +216,5 @@ class Kandinsky5TextEmbedder:
         return self
 
 
-def get_text_embedder(conf, device="cpu", quantized_qwen=False, text_token_padding=True):
-    return Kandinsky5TextEmbedder(conf, device, quantized_qwen, text_token_padding)
+def get_text_embedder(conf, device="cpu", quantized_qwen=False, text_token_padding=True, dtype=torch.bfloat16):
+    return Kandinsky5TextEmbedder(conf, device, quantized_qwen, text_token_padding, dtype)

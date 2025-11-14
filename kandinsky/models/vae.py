@@ -1217,10 +1217,10 @@ class AutoencoderKLHunyuanVideo(ModelMixin, ConfigMixin):
         return self.get_enc_optimal_tiling(enc_inp_shape)
 
 
-def build_vae(conf):
+def build_vae(conf, dtype=torch.bfloat16):
     if conf.name == "hunyuan":
         return AutoencoderKLHunyuanVideo.from_pretrained(
-            conf.checkpoint_path, subfolder="vae", torch_dtype=torch.float16
+            conf.checkpoint_path, subfolder="vae", torch_dtype=dtype
         )
     else:
         assert False, f"unknown vae name {conf.name}"

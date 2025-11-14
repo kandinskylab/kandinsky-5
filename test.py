@@ -156,6 +156,13 @@ def parse_args():
         default=6,
         help="Number of transformer blocks to keep in GPU memory when using block swapping"
     )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        default="bfloat16",
+        choices=["float32", "float16", "bfloat16"],
+        help="Data type for model weights (default: bfloat16). Use bfloat16 for best memory efficiency with minimal quality loss."
+    )
     args = parser.parse_args()
     return args
 
@@ -164,6 +171,14 @@ if __name__ == "__main__":
     disable_warnings()
     args = parse_args()
     validate_args(args)
+
+    # Convert string dtype to torch dtype
+    dtype_map = {
+        "float32": torch.float32,
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+    }
+    model_dtype = dtype_map[args.dtype]
 
     if "i2v" in args.config:
         if args.enable_block_swap:
@@ -178,6 +193,7 @@ if __name__ == "__main__":
                 attention_engine=args.attention_engine,
                 blocks_in_memory=args.blocks_in_memory,
                 enable_block_swap=True,
+                dtype=model_dtype,
             )
         else:
             # Use standard pipeline
@@ -189,6 +205,7 @@ if __name__ == "__main__":
                 magcache=args.magcache,
                 quantized_qwen=args.qwen_quantization,
                 attention_engine=args.attention_engine,
+                dtype=model_dtype,
             )
     else:
         pipe = get_T2V_pipeline(
@@ -199,6 +216,7 @@ if __name__ == "__main__":
             magcache=args.magcache,
             quantized_qwen=args.qwen_quantization,
             attention_engine=args.attention_engine,
+            dtype=model_dtype,
         )
 
     if args.output_filename is None:

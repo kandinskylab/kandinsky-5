@@ -38,6 +38,7 @@ def get_T2V_pipeline(
     quantized_qwen: bool = False,
     text_token_padding: bool = True,
     attention_engine: str = "auto",
+    dtype: torch.dtype = torch.bfloat16,
 ) -> Kandinsky5T2VPipeline:
     assert resolution in [512]
 
@@ -103,14 +104,15 @@ def get_T2V_pipeline(
 
     conf.model.text_embedder.qwen.mode = "t2v"
     text_embedder = get_text_embedder(conf.model.text_embedder, device=device_map["text_embedder"],
-                                      quantized_qwen=quantized_qwen, text_token_padding=text_token_padding)
-    if not offload: 
-        text_embedder = text_embedder.to( device=device_map["text_embedder"]) 
-    
-    vae = build_vae(conf.model.vae)
+                                      quantized_qwen=quantized_qwen, text_token_padding=text_token_padding,
+                                      dtype=dtype)
+    if not offload:
+        text_embedder = text_embedder.to(device=device_map["text_embedder"])
+
+    vae = build_vae(conf.model.vae, dtype=dtype)
     vae = vae.eval()
     if not offload:
-        vae = vae.to(device=device_map["vae"]) 
+        vae = vae.to(device=device_map["vae"], dtype=dtype)
 
     dit = get_dit(conf.model.dit_params)
 
@@ -123,10 +125,13 @@ def get_T2V_pipeline(
         set_magcache_params(dit, mag_ratios, num_steps, no_cfg)
 
     state_dict = load_file(conf.model.checkpoint_path)
+    # Convert state dict to specified dtype
+    state_dict = {k: v.to(dtype) if v.dtype in [torch.float32, torch.float16, torch.bfloat16] else v
+                  for k, v in state_dict.items()}
     dit.load_state_dict(state_dict, assign=True)
 
     if not offload:
-        dit = dit.to(device_map["dit"])
+        dit = dit.to(device_map["dit"], dtype=dtype)
 
     if world_size > 1:
         dit = parallelize_dit(dit, device_mesh["tensor_parallel"])
@@ -156,6 +161,7 @@ def get_I2V_pipeline(
     quantized_qwen: bool = False,
     text_token_padding: bool = True,
     attention_engine: str = "auto",
+    dtype: torch.dtype = torch.bfloat16,
 ) -> Kandinsky5T2VPipeline:
     if not isinstance(device_map, dict):
         device_map = {"dit": device_map, "vae": device_map, "text_embedder": device_map}
@@ -219,14 +225,15 @@ def get_I2V_pipeline(
 
     conf.model.text_embedder.qwen.mode = "i2v"
     text_embedder = get_text_embedder(conf.model.text_embedder, device=device_map["text_embedder"],
-                                      quantized_qwen=quantized_qwen, text_token_padding=text_token_padding)
-    if not offload: 
-        text_embedder = text_embedder.to( device=device_map["text_embedder"]) 
-    
-    vae = build_vae(conf.model.vae)
+                                      quantized_qwen=quantized_qwen, text_token_padding=text_token_padding,
+                                      dtype=dtype)
+    if not offload:
+        text_embedder = text_embedder.to(device=device_map["text_embedder"])
+
+    vae = build_vae(conf.model.vae, dtype=dtype)
     vae = vae.eval()
     if not offload:
-        vae = vae.to(device=device_map["vae"]) 
+        vae = vae.to(device=device_map["vae"], dtype=dtype)
 
     dit = get_dit(conf.model.dit_params)
 
@@ -239,10 +246,13 @@ def get_I2V_pipeline(
         set_magcache_params(dit, mag_ratios, num_steps, no_cfg)
 
     state_dict = load_file(conf.model.checkpoint_path)
+    # Convert state dict to specified dtype
+    state_dict = {k: v.to(dtype) if v.dtype in [torch.float32, torch.float16, torch.bfloat16] else v
+                  for k, v in state_dict.items()}
     dit.load_state_dict(state_dict, assign=True)
 
     if not offload:
-        dit = dit.to(device_map["dit"])
+        dit = dit.to(device_map["dit"], dtype=dtype)
 
     if world_size > 1:
         dit = parallelize_dit(dit, device_mesh["tensor_parallel"])
@@ -337,6 +347,7 @@ def get_I2V_pipeline_with_block_swap(
     attention_engine: str = "auto",
     blocks_in_memory: int = 4,
     enable_block_swap: bool = True,
+    dtype: torch.dtype = torch.bfloat16,
 ) -> Kandinsky5I2VPipeline:
     """
     Get I2V pipeline with block swapping support for large models (e.g., 20B).
@@ -356,6 +367,7 @@ def get_I2V_pipeline_with_block_swap(
         attention_engine: Attention implementation to use
         blocks_in_memory: Number of transformer blocks to keep in GPU memory
         enable_block_swap: Enable block swapping (set False to disable for debugging)
+        dtype: Data type for model weights (default: torch.bfloat16)
 
     Returns:
         Kandinsky5I2VPipeline with block-swapping enabled DiT
@@ -403,16 +415,17 @@ def get_I2V_pipeline_with_block_swap(
         conf.model.text_embedder,
         device=device_map["text_embedder"],
         quantized_qwen=quantized_qwen,
-        text_token_padding=text_token_padding
+        text_token_padding=text_token_padding,
+        dtype=dtype
     )
     if not offload:
         text_embedder = text_embedder.to(device=device_map["text_embedder"])
 
     # Build VAE
-    vae = build_vae(conf.model.vae)
+    vae = build_vae(conf.model.vae, dtype=dtype)
     vae = vae.eval()
     if not offload:
-        vae = vae.to(device=device_map["vae"])
+        vae = vae.to(device=device_map["vae"], dtype=dtype)
 
     # Build DiT with block swapping
     print(f"Building DiT with block swapping: enabled={enable_block_swap}, blocks_in_memory={blocks_in_memory}")
@@ -434,10 +447,13 @@ def get_I2V_pipeline_with_block_swap(
 
     print(f"Loading DiT weights from {conf.model.checkpoint_path}")
     state_dict = load_file(conf.model.checkpoint_path)
+    # Convert state dict to specified dtype
+    state_dict = {k: v.to(dtype) if v.dtype in [torch.float32, torch.float16, torch.bfloat16] else v
+                  for k, v in state_dict.items()}
     dit.load_state_dict(state_dict, assign=True)
 
     if not offload:
-        dit = dit.to(device_map["dit"])
+        dit = dit.to(device_map["dit"], dtype=dtype)
 
     if world_size > 1:
         if enable_block_swap:

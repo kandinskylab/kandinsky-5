@@ -182,8 +182,17 @@ def generate_sample(
             [negative_caption], type_of_content=type_of_content
         )
 
+    # Clean up text embedder after encoding to free VRAM and RAM
+    # Text embedder is no longer needed after this point
     if offload:
         text_embedder = text_embedder.to('cpu')
+    # Delete text embedder components to free memory
+    del text_embedder.embedder.model
+    del text_embedder.clip_embedder.model
+    del text_embedder
+    torch.cuda.empty_cache()
+    import gc
+    gc.collect()
 
     for key in bs_text_embed:
         bs_text_embed[key] = bs_text_embed[key].to(device=device)
@@ -288,10 +297,17 @@ def generate_sample_i2v(
             [negative_caption], type_of_content=type_of_content
         )
 
-    # Offload text embedder after encoding to free VRAM
+    # Clean up text embedder after encoding to free VRAM and RAM
+    # Text embedder is no longer needed after this point
     if offload or force_offload:
         text_embedder = text_embedder.to('cpu')
-        torch.cuda.empty_cache()
+    # Delete text embedder components to free memory
+    del text_embedder.embedder.model
+    del text_embedder.clip_embedder.model
+    del text_embedder
+    torch.cuda.empty_cache()
+    import gc
+    gc.collect()
 
     for key in bs_text_embed:
         bs_text_embed[key] = bs_text_embed[key].to(device=device)
