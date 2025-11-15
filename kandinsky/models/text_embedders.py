@@ -98,7 +98,6 @@ class Qwen2_5_VLTextEmbedder:
         )
         self.model = freeze(self.model)
         self.model = torch.compile(self.model, dynamic=True)
-        self.mode = conf.mode
         self.processor = AutoProcessor.from_pretrained(conf.checkpoint_path, use_fast=True)
         self.max_length = conf.max_length
         self.text_token_padding = text_token_padding

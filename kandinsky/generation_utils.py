@@ -265,7 +265,6 @@ def generate_sample_i2v(
     progress=True,
     offload=False,
 ):
-    old_mode = text_embedder.embedder.mode
     text_embedder.embedder.mode = "i2v"
 
     bs, duration, height, width, dim = shape
