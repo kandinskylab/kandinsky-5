@@ -5,6 +5,7 @@ import torch
 from tqdm import tqdm 
 
 from .models.utils import fast_sta_nabla
+import torchvision.transforms.functional as F
 
 
 def get_sparse_params(conf, batch_embeds, device):
@@ -86,7 +87,7 @@ def get_velocity(
 def generate(
     model,
     device,
-    shape,
+    img,
     num_steps,
     text_embeds,
     null_text_embeds,
@@ -102,10 +103,6 @@ def generate(
     attention_mask=None,
     null_attention_mask=None,
 ):
-    g = torch.Generator(device="cuda")
-    g.manual_seed(seed)
-    img = torch.randn(*shape, device=device, generator=g)
-
     sparse_params = get_sparse_params(conf, {"visual": img}, device)
     timesteps = torch.linspace(1, 0, num_steps + 1, device=device)
     timesteps = scheduler_scale * timesteps / (1 + (scheduler_scale - 1) * timesteps)
@@ -139,8 +136,36 @@ def generate(
             attention_mask=attention_mask,
             null_attention_mask=null_attention_mask,
         )
-        img = img + timestep_diff * pred_velocity
-    return img
+        img[...,:pred_velocity.shape[-1]] += timestep_diff * pred_velocity
+    return img[...,:pred_velocity.shape[-1]]
+
+
+def resize_video(video, visual_size):
+    height, width = video.shape[-2:]
+    nearest_height, nearest_width = visual_size
+
+    scale_factor = min(height / nearest_height, width / nearest_width)
+    video = F.resize(video, (int(height / scale_factor), int(width / scale_factor)))
+
+    height, width = video.shape[-2:]
+    video = F.crop(
+        video,
+        (height - nearest_height) // 2,
+        (width - nearest_width) // 2,
+        nearest_height,
+        nearest_width,
+    )
+    return video
+
+
+def encode_video(data, vae, image_vae): # batch, channels, time, h, w
+    if image_vae:
+        assert data.shape[2] == 1
+        data = vae.encode(data[:, :, 0]).latent_dist.sample()[:, :, None]
+    else:
+        data = vae.encode(data)[0]
+    data *= vae.config.scaling_factor
+    return data.permute(0, 2, 3, 4, 1) # batch, time, h, w, channels
 
 
 def generate_sample(
@@ -161,19 +186,45 @@ def generate_sample(
     progress=True,
     offload=False,
     image_vae=False,
+    image=None
 ):
     bs, duration, height, width, dim = shape
+    
+    g = torch.Generator(device="cuda")
+    g.manual_seed(seed)
+    img = torch.randn(bs * duration, height, width, dim, device=device, generator=g, dtype=torch.bfloat16)
+    
     if duration == 1:
-        type_of_content = "image"
+        if image is None:
+            type_of_content = "image"
+        else:
+            type_of_content = 'image_edit'
     else:
         type_of_content = "video"
 
+    
+    if image is not None:
+        image = [resize_video(image, (height * 8, width * 8))]
+
+    if dit.instruct_type == 'channel':
+        if image is not None:
+            if offload:
+                vae.to(vae_device)
+            edit_latent = [(i.to(device=vae_device, dtype=torch.bfloat16) / 127.5 - 1.0) for i in image]
+            edit_latent = torch.cat([encode_video(i[:,:,None], vae, image_vae).squeeze(0) for i in edit_latent], 0)
+            edit_latent = torch.cat([edit_latent, torch.ones_like(img[...,:1])],-1)
+            if offload:
+                vae.to('cpu')
+        else:
+            edit_latent = torch.cat([torch.zeros_like(img), torch.zeros_like(img[...,:1])],-1)
+        img = torch.cat([img, edit_latent],dim=-1)
+    
     with torch.no_grad():
         bs_text_embed, text_cu_seqlens, attention_mask = text_embedder.encode(
-            [caption], type_of_content=type_of_content
+            [caption], type_of_content=type_of_content, images=image
         )
         bs_null_text_embed, null_text_cu_seqlens, null_attention_mask = text_embedder.encode(
-            [negative_caption], type_of_content=type_of_content
+            [negative_caption], type_of_content=type_of_content, images=image
         )
 
     if offload:
@@ -201,7 +252,7 @@ def generate_sample(
             latent_visual = generate(
                 dit,
                 device,
-                (bs * duration, height, width, dim),
+                img,
                 num_steps,
                 bs_text_embed,
                 bs_null_text_embed,
@@ -266,8 +317,12 @@ def generate_sample_i2v(
     offload=False,
 ):
     text_embedder.embedder.mode = "i2v"
-
     bs, duration, height, width, dim = shape
+
+    g = torch.Generator(device="cuda")
+    g.manual_seed(seed)
+    img = torch.randn(bs * duration, height, width, dim, device=device, generator=g, dtype=torch.bfloat16)
+    
     if duration == 1:
         type_of_content = "image"
     else:
@@ -306,7 +361,7 @@ def generate_sample_i2v(
             latent_visual = generate(
                 dit,
                 device,
-                (bs * duration, height, width, dim),
+                img,
                 num_steps,
                 bs_text_embed,
                 bs_null_text_embed,

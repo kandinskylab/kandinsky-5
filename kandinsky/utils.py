@@ -14,6 +14,7 @@ from .models.parallelize import parallelize_dit
 from .i2v_pipeline import Kandinsky5I2VPipeline
 from .t2v_pipeline import Kandinsky5T2VPipeline
 from .t2i_pipeline import Kandinsky5T2IPipeline
+from .i2i_pipeline import Kandinsky5I2IPipeline
 from .magcache_utils import set_magcache_params
 
 from PIL import Image
@@ -257,7 +258,10 @@ def get_I2V_pipeline(
     )
 
 
-def get_T2I_pipeline(
+def _get_TI2I_params(
+    instruct_type: bool,
+    model_name: str,
+    wieghts_name: str,
     device_map: Union[str, torch.device, dict],
     resolution: int = 1024,
     cache_dir: str = "./weights/",
@@ -298,11 +302,11 @@ def get_T2I_pipeline(
 
     if dit_path is None and conf_path is None:
         dit_path = snapshot_download(
-            repo_id="kandinskylab/Kandinsky-5.0-T2I-Lite",
+            repo_id=f"kandinskylab/{model_name}",
             allow_patterns="model/*",
             local_dir=cache_dir,
         )
-        dit_path = os.path.join(cache_dir, "model/kandinsky5lite_t2i.safetensors")
+        dit_path = os.path.join(cache_dir, f"model/{wieghts_name}")
 
     if vae_path is None and conf_path is None:
         vae_path = snapshot_download(
@@ -327,8 +331,8 @@ def get_T2I_pipeline(
         text_encoder2_path = os.path.join(cache_dir, "text_encoder2/")
 
     if conf_path is None:
-        conf = get_default_t2i_conf(
-            dit_path, vae_path, text_encoder_path, text_encoder2_path
+        conf = get_default_ti2i_conf(
+            dit_path, vae_path, text_encoder_path, text_encoder2_path, instruct_type=instruct_type,
         )
     else:
         conf = OmegaConf.load(conf_path)
@@ -364,7 +368,7 @@ def get_T2I_pipeline(
     if world_size > 1:
         dit = parallelize_dit(dit, device_mesh["tensor_parallel"])
 
-    return Kandinsky5T2IPipeline(
+    return dict(
         device_map=device_map,
         dit=dit,
         text_embedder=text_embedder,
@@ -375,6 +379,82 @@ def get_T2I_pipeline(
         conf=conf,
         offload=offload,
     )
+
+
+
+def get_T2I_pipeline(
+    device_map: Union[str, torch.device, dict],
+    resolution: int = 1024,
+    cache_dir: str = "./weights/",
+    dit_path: str = None,
+    text_encoder_path: str = None,
+    text_encoder2_path: str = None,
+    vae_path: str = None,
+    conf_path: str = None,
+    offload: bool = False,
+    magcache: bool = False,
+    quantized_qwen: bool = False,
+    text_token_padding: bool = True,
+    attention_engine: str = "auto",
+) -> Kandinsky5T2IPipeline:
+    kwargs = _get_TI2I_params(
+        instruct_type=None,
+        model_name='Kandinsky-5.0-T2I-Lite',
+        wieghts_name='kandinsky5lite_t2i.safetensors',
+        device_map=device_map,
+        resolution=resolution,
+        cache_dir=cache_dir,
+        dit_path=dit_path,
+        text_encoder_path=text_encoder_path,
+        text_encoder2_path=text_encoder2_path,
+        vae_path=vae_path,
+        conf_path=conf_path,
+        offload=offload,
+        magcache=magcache,
+        quantized_qwen=quantized_qwen,
+        text_token_padding=text_token_padding,
+        attention_engine=attention_engine,
+    )
+
+    return Kandinsky5T2IPipeline(**kwargs)
+
+
+def get_I2I_pipeline(
+    device_map: Union[str, torch.device, dict],
+    resolution: int = 1024,
+    cache_dir: str = "./weights/",
+    dit_path: str = None,
+    text_encoder_path: str = None,
+    text_encoder2_path: str = None,
+    vae_path: str = None,
+    conf_path: str = None,
+    offload: bool = False,
+    magcache: bool = False,
+    quantized_qwen: bool = False,
+    text_token_padding: bool = True,
+    attention_engine: str = "auto",
+) -> Kandinsky5T2IPipeline:
+    kwargs = _get_TI2I_params(
+        instruct_type='channel',
+        model_name='Kandinsky-5.0-I2I-Lite',
+        wieghts_name='kandinsky5lite_i2i.safetensors',
+        device_map=device_map,
+        resolution=resolution,
+        cache_dir=cache_dir,
+        dit_path=dit_path,
+        text_encoder_path=text_encoder_path,
+        text_encoder2_path=text_encoder2_path,
+        vae_path=vae_path,
+        conf_path=conf_path,
+        offload=offload,
+        magcache=magcache,
+        quantized_qwen=quantized_qwen,
+        text_token_padding=text_token_padding,
+        attention_engine=attention_engine,
+    )
+
+    return Kandinsky5I2IPipeline(**kwargs)
+
 
 
 def get_default_conf(
@@ -441,13 +521,15 @@ def get_default_conf(
     return DictConfig(conf)
 
 
-def get_default_t2i_conf(
+def get_default_ti2i_conf(
     dit_path,
     vae_path,
     text_encoder_path,
     text_encoder2_path,
+    instruct_type=None,
 ) -> DictConfig:
     dit_params = {
+        "instruct_type": instruct_type,
         "in_visual_dim": 16,
         "out_visual_dim": 16,
         "time_dim": 512,
