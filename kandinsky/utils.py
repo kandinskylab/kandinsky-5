@@ -575,7 +575,7 @@ def get_default_ti2i_conf(
             "dit_params": dit_params,
             "attention": attention,
             "num_steps": 50,
-            "guidance_weight": 5.0,
+            "guidance_weight": 3.5,
         },
         "metrics": {"scale_factor": (1, 1, 1)},
         "resolution": 512,
