@@ -39,7 +39,7 @@ class Kandinsky5LoadTextEmbedders:
         conf = {'qwen': {'checkpoint_path': qwen_path, 'max_length': 256},
             'clip': {'checkpoint_path': clip_path, 'max_length': 77},
         }
-        return (Kandinsky5TextEmbedder(DictConfig(conf), device='cpu',quantized_qwen=qwen_quantized),)
+        return (Kandinsky5TextEmbedder(DictConfig(conf), device='cuda:0',quantized_qwen=qwen_quantized),)
 class Kandinsky5LoadDiT:
     @classmethod
     def INPUT_TYPES(s):
@@ -234,6 +234,7 @@ class Kandinsky5Generate(ComfyNodeABC):
             },
             "optional": {
                 "image_latent": ("LATENT",),
+                "seed": ("INT",{"default":5})
             },
         }
     RETURN_TYPES = ("LATENT",)
@@ -243,7 +244,7 @@ class Kandinsky5Generate(ComfyNodeABC):
     CATEGORY = "sampling"
     DESCRIPTION = "Uses the provided model, positive and negative conditioning to denoise the latent image."
 
-    def sample(self, model, config, steps, width, height, length, cfg, precision, positive_emb, positive_clip, negative_emb, negative_clip, scheduler_scale, image_latent=None):
+    def sample(self, model, config, steps, width, height, length, cfg, precision, positive_emb, positive_clip, negative_emb, negative_clip, scheduler_scale, image_latent=None, seed=5):
         bs = 1
         device = 'cuda:0'
         model = model.to(device)
@@ -268,10 +269,16 @@ class Kandinsky5Generate(ComfyNodeABC):
         ]
         text_rope_pos = torch.cat([torch.arange(end) for end in torch.diff(text_cu_seqlens).cpu()])
         null_text_rope_pos = torch.cat([torch.arange(end) for end in torch.diff(null_text_cu_seqlens).cpu()])
+  
+        g = torch.Generator(device="cuda")
+        g.manual_seed(seed)
+        img = torch.randn(bs * length, height, width, dim, device=device, generator=g, dtype=torch.bfloat16)
+   
+        
         with torch.no_grad():
             with torch.autocast(device_type='cuda', dtype=autocast_type):
                 latent_visual = generate(
-                    model, device, (bs * length, height, width, dim), steps, 
+                    model, device, img, steps, 
                     text_embed, null_embed,
                     visual_rope_pos, text_rope_pos, null_text_rope_pos,
                     cfg, scheduler_scale, 
