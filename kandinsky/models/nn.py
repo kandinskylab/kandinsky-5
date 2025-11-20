@@ -204,7 +204,6 @@ class MultiheadSelfAttentionEnc(nn.Module):
         key = apply_rotary(key, rope).type_as(key)
 
         out = self.scaled_dot_product_attention(query, key, value, attention_mask)
-
         out = self.out_l(out)
         return out
 

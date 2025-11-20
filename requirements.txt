@@ -1,6 +1,7 @@
 ipykernel
 ipywidgets
 pillow
+torch == 2.8.0
 packaging
 requests
 anyio
@@ -8,7 +9,6 @@ pydantic
 aiohttp
 websocket-client
 beautifulsoup4
-torch == 2.8.0
 torchvision
 transformers >= 4.56.2
 diffusers

@@ -2,6 +2,7 @@ import os
 os.environ["TOKENIZERS_PARALLELISM"] = "False"
 
 import torch
+from torch.distributed import all_gather
 from tqdm import tqdm 
 
 from .models.utils import fast_sta_nabla
@@ -36,6 +37,46 @@ def get_sparse_params(conf, batch_embeds, device):
 
     return sparse_params
 
+def adaptive_mean_std_normalization(source, reference):
+    source_mean = source.mean(dim=(1,2,3),keepdim=True)
+    source_std = source.std(dim=(1,2,3),keepdim=True)
+    #magic constants - limit changes in latents
+    clump_mean_low = 0.05
+    clump_mean_high = 0.1
+    clump_std_low = 0.1
+    clump_std_high = 0.25
+
+    reference_mean = torch.clamp(reference.mean(), source_mean - clump_mean_low, source_mean + clump_mean_high)
+    reference_std = torch.clamp(reference.std(), source_std - clump_std_low, source_std + clump_std_high)
+
+    # normalization
+    normalized = (source - source_mean) / source_std
+    normalized = normalized * reference_std + reference_mean
+    
+    return normalized
+
+def normalize_first_frame(latents, reference_frames=5, clump_values=False):
+    latents_copy = latents.clone()
+    samples = latents_copy
+    
+    if samples.shape[0] <= 1:
+        return (latents, "Only one frame, no normalization needed")
+    nFr = 4
+    first_frames = samples[:nFr]
+    reference_frames_data = samples[nFr:nFr+min(reference_frames, samples.shape[0]-1)]
+    
+    # print("First frame stats - Mean:", first_frames.mean(dim=(1,2,3)), "Std: ", first_frames.std(dim=(1,2,3)))
+    # print(f"Reference frames stats - Mean: {reference_frames_data.mean().item():.4f}, Std: {reference_frames_data.std().item():.4f}")
+    
+    normalized_first = adaptive_mean_std_normalization(first_frames, reference_frames_data)
+    if clump_values:
+        min_val = reference_frames_data.min()
+        max_val = reference_frames_data.max()
+        normalized_first = torch.clamp(normalized_first, min_val, max_val)
+    
+    samples[:nFr] = normalized_first
+    
+    return samples
 
 @torch.no_grad()
 def get_velocity(
@@ -100,12 +141,18 @@ def generate(
     conf,
     progress=False,
     seed=6554,
+    tp_mesh=None,
     attention_mask=None,
     null_attention_mask=None,
 ):
     sparse_params = get_sparse_params(conf, {"visual": img}, device)
     timesteps = torch.linspace(1, 0, num_steps + 1, device=device)
     timesteps = scheduler_scale * timesteps / (1 + (scheduler_scale - 1) * timesteps)
+
+    if tp_mesh:
+        tp_rank = tp_mesh["tensor_parallel"].get_local_rank()
+        tp_world_size = tp_mesh["tensor_parallel"].size()
+        img = torch.chunk(img, tp_world_size, dim=1)[tp_rank]
 
     for timestep, timestep_diff in tqdm(list(zip(timesteps[:-1], torch.diff(timesteps)))):
         time = timestep.unsqueeze(0)
@@ -136,8 +183,9 @@ def generate(
             attention_mask=attention_mask,
             null_attention_mask=null_attention_mask,
         )
-        img[...,:pred_velocity.shape[-1]] += timestep_diff * pred_velocity
-    return img[...,:pred_velocity.shape[-1]]
+        img[..., :pred_velocity.shape[-1]] += timestep_diff * pred_velocity
+        # NOTE: remove extra channels that can be added in Image Editing (I2I)
+    return img[..., :pred_velocity.shape[-1]]
 
 
 def resize_video(video, visual_size):
@@ -169,6 +217,125 @@ def encode_video(data, vae, image_vae): # batch, channels, time, h, w
 
 
 def generate_sample(
+    shape,
+    caption,
+    dit,
+    vae,
+    conf,
+    text_embedder,
+    num_steps=25,
+    guidance_weight=5.0,
+    scheduler_scale=1,
+    negative_caption="",
+    seed=6554,
+    device="cuda",
+    vae_device="cuda",
+    text_embedder_device="cuda",
+    progress=True,
+    offload=False,
+    tp_mesh=None,
+):
+    bs, duration, height, width, dim = shape
+
+    g = torch.Generator(device="cuda")
+    g.manual_seed(seed)
+    img = torch.randn(bs * duration, height, width, dim, device=device, generator=g, dtype=torch.bfloat16)
+
+    if duration == 1:
+        type_of_content = "image"
+    else:
+        type_of_content = "video"
+
+    with torch.no_grad():
+        bs_text_embed, text_cu_seqlens, attention_mask = text_embedder.encode(
+            [caption], type_of_content=type_of_content
+        )
+        bs_null_text_embed, null_text_cu_seqlens, null_attention_mask = text_embedder.encode(
+            [negative_caption], type_of_content=type_of_content
+        )
+
+    if offload:
+        text_embedder = text_embedder.to('cpu')
+
+    for key in bs_text_embed:
+        bs_text_embed[key] = bs_text_embed[key].to(device=device)
+        bs_null_text_embed[key] = bs_null_text_embed[key].to(device=device)
+    text_cu_seqlens = text_cu_seqlens.to(device=device)[-1].item()
+    null_text_cu_seqlens = null_text_cu_seqlens.to(device=device)[-1].item()
+
+    visual_rope_pos = [
+        torch.arange(duration),
+        torch.arange(shape[-3] // conf.model.dit_params.patch_size[1]),
+        torch.arange(shape[-2] // conf.model.dit_params.patch_size[2]),
+    ]
+    text_rope_pos = torch.arange(text_cu_seqlens)
+    null_text_rope_pos = torch.arange(null_text_cu_seqlens)
+
+    if offload:
+        dit.to(device, non_blocking=True)
+        
+    with torch.no_grad():
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            latent_visual = generate(
+                dit,
+                device,
+                img,
+                num_steps,
+                bs_text_embed,
+                bs_null_text_embed,
+                visual_rope_pos,
+                text_rope_pos,
+                null_text_rope_pos,
+                guidance_weight,
+                scheduler_scale,
+                None,
+                conf,
+                seed=seed,
+                progress=progress,
+                tp_mesh=tp_mesh,
+                attention_mask=attention_mask,
+                null_attention_mask=null_attention_mask,
+            )
+            
+    if tp_mesh:
+        tensor_list = [
+        torch.zeros_like(latent_visual, device=latent_visual.device) for _ in range(tp_mesh["tensor_parallel"].size())
+        ]
+        all_gather(
+            tensor_list,
+            latent_visual,
+            group=tp_mesh.get_group(mesh_dim="tensor_parallel")
+        )
+        latent_visual = torch.cat(tensor_list, dim=1)
+
+    if offload:
+        dit = dit.to('cpu', non_blocking=True)
+    torch.cuda.empty_cache()
+
+    if offload:
+        vae = vae.to(vae_device, non_blocking=True)
+
+    with torch.no_grad():
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            images = latent_visual.reshape(
+                bs,
+                -1,
+                latent_visual.shape[-3],
+                latent_visual.shape[-2],
+                latent_visual.shape[-1],
+            )
+            images = images.to(device=vae_device)
+            images = (images / vae.config.scaling_factor).permute(0, 4, 1, 2, 3)
+            images = vae.decode(images).sample
+            images = ((images.clamp(-1.0, 1.0) + 1.0) * 127.5).to(torch.uint8)
+
+    if offload:
+        vae = vae.to('cpu', non_blocking=True)
+    torch.cuda.empty_cache()
+
+    return images
+
+def generate_sample_ti2i(
     shape,
     caption,
     dit,
@@ -315,6 +482,7 @@ def generate_sample_i2v(
     vae_device="cuda",
     progress=True,
     offload=False,
+    tp_mesh=None
 ):
     text_embedder.embedder.mode = "i2v"
     bs, duration, height, width, dim = shape
@@ -356,6 +524,13 @@ def generate_sample_i2v(
     if offload:
         dit.to(device, non_blocking=True)
 
+    if tp_mesh:
+        tp_rank = tp_mesh["tensor_parallel"].get_local_rank()
+        tp_world_size = tp_mesh["tensor_parallel"].size()
+        first_frames = torch.chunk(images, tp_world_size, dim=1)[tp_rank]
+    else:
+        first_frames = images
+
     with torch.no_grad():
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             latent_visual = generate(
@@ -370,16 +545,29 @@ def generate_sample_i2v(
                 null_text_rope_pos,
                 guidance_weight,
                 scheduler_scale,
-                images,
+                first_frames,
                 conf,
                 seed=seed,
                 progress=progress,
+                tp_mesh=tp_mesh,
                 attention_mask=attention_mask,
                 null_attention_mask=null_attention_mask,
             )
-            if images is not None:
-                images = images.to(device=latent_visual.device, dtype=latent_visual.dtype)
-                latent_visual[:1] = images
+    if tp_mesh:
+        tensor_list = [
+        torch.zeros_like(latent_visual, device=latent_visual.device) for _ in range(tp_mesh["tensor_parallel"].size())
+        ]
+        all_gather(
+            tensor_list,
+            latent_visual.contiguous(),
+            group=tp_mesh.get_group(mesh_dim="tensor_parallel")
+        )
+        latent_visual = torch.cat(tensor_list, dim=1)
+
+    if images is not None:
+        images = images.to(device=latent_visual.device, dtype=latent_visual.dtype)
+        latent_visual[:1] = images
+    latent_visual = normalize_first_frame(latent_visual)
 
     if offload:
         dit = dit.to('cpu', non_blocking=True)

@@ -61,7 +61,7 @@ class Kandinsky5LoadDiT:
         current_file = Path(__file__)
         parent_directory = current_file.parent.parent
         sec = dit.split("_")[-1].split(".")[0]
-        conf = OmegaConf.load(os.path.join(parent_directory,f"configs/config_{sec}_sft.yaml"))
+        conf = OmegaConf.load(os.path.join(parent_directory,f"configs/k5_lite_t2v_{sec}_sft_sd.yaml"))
         dit = get_dit(conf.model.dit_params)
         state_dict = load_file(dit_path)
         dit.load_state_dict(state_dict)

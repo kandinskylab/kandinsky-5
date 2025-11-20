@@ -773,7 +773,7 @@ class AutoencoderKLHunyuanVideo(ModelMixin, ConfigMixin):
             self.tile_sample_min_height // self.spatial_compression_ratio
         )
         tile_latent_min_width = (
-            self.tile_sample_stride_width // self.spatial_compression_ratio
+            self.tile_sample_min_width // self.spatial_compression_ratio
         )
         tile_latent_min_num_frames = (
             self.tile_sample_min_num_frames // self.temporal_compression_ratio
@@ -1171,22 +1171,18 @@ class AutoencoderKLHunyuanVideo(ModelMixin, ConfigMixin):
 
         free_mem = torch.cuda.mem_get_info()[0]
         max_area = free_mem / 256 / 17 / 8
+        num_vals = 256 * 17 * (h + 32) * (w + 32) 
 
-        if h * w < max_area:
+        if h * w < max_area and num_vals < 2**31:
             return (1, 17, h, w), (8, h, w)
 
         def factorize(n, k):
             a = sqrt(n / k)
             b = sqrt(n * k)
-            aa = [floor(a), ceil(a)]
-            bb = [floor(b), ceil(b)]
-            for a in aa:
-                for b in bb:
-                    if a * b >= n:
-                        return a, b
+            return ceil(a), ceil(b)
 
         k = max(h / w, w / h)
-        N = ceil(h * w / max_area)
+        N = max(ceil(h * w / max_area), ceil(num_vals / 2**31))
         a, b = factorize(N, k)
         if h >= w:
             wn, hn = a, b
@@ -1205,8 +1201,7 @@ class AutoencoderKLHunyuanVideo(ModelMixin, ConfigMixin):
         else:
             ht = h
             hs = h
-
-        return (1, 17, ht, wt), (hs, ws, 8)
+        return (1, 17, ht, wt), (8, hs, ws)
 
     def get_dec_optimal_tiling(
         self, shape: List[int]

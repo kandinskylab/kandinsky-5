@@ -16,7 +16,7 @@ def validate_args(args):
     elif "t2i" in args.config:
         supported_sizes = [(1024, 1024), (640, 1408), (1408, 640), (768, 1280), (1280, 768), (896, 1152), (1152, 896)]
     else:
-        supported_sizes = [(512, 512), (512, 768), (768, 512)]
+        supported_sizes = [(512, 512), (512, 768), (768, 512), (1280, 768), (768, 1280), (1024, 1024), (640, 1408), (1408, 640), (768, 1280), (1280, 768), (896, 1152), (1152, 896)]
     if not size in supported_sizes:
         raise NotImplementedError(
             f"Provided size of video is not supported: {size}")
@@ -47,20 +47,20 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default="./configs/config_5s_sft.yaml",
+        default="./configs/k5_lite_t2v_5s_sft_sd.yaml",
         help="The config file of the model"
     )
     parser.add_argument(
         "--prompt",
         type=str,
-        default="The dragon soars into the sunset sky.",
+        default="The bear plays balalaika.",
         help="The prompt to generate video"
     )
     parser.add_argument(
         "--image",
         type=str,
         default="./assets/test_image.jpg",
-        help="The prompt to generate video"
+        help="An image to generate image/video from."
     )
     parser.add_argument(
         "--negative_prompt",
@@ -72,12 +72,14 @@ def parse_args():
         "--width",
         type=int,
         default=768,
+        choices=[512, 640, 768, 896, 1152, 1024, 1280],
         help="Width of the video in pixels"
     )
     parser.add_argument(
         "--height",
         type=int,
         default=512,
+        choices=[512, 640, 768, 896, 1152, 1024, 1280],
         help="Height of the video in pixels"
     )
     parser.add_argument(
@@ -162,11 +164,17 @@ def parse_args():
     return args
 
 
+def set_seed(seed=42):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+
+
 if __name__ == "__main__":
     disable_warnings()
     args = parse_args()
     validate_args(args)
 
+    set_seed(args.seed)
     device_map = {"dit": "cuda:0", "vae": "cuda:0",
                   "text_embedder": "cuda:0"}
 

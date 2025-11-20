@@ -4,7 +4,7 @@ from typing import Union, Optional
 import transformers
 import torch
 from torchvision.transforms import ToPILImage
-from .generation_utils import generate_sample
+from .generation_utils import generate_sample_ti2i
 from PIL import Image
 from torchvision.transforms.functional import pil_to_tensor
 
@@ -111,8 +111,8 @@ Rewrite Prompt: "{prompt}". Answer only with expanded prompt.""",
     def __call__(
         self,
         text: str,
-        width: Optional[int] = 1024,
-        height: Optional[int] = 1024,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
         seed: int = None,
         num_steps: Optional[int] = None,
         guidance_weight: Optional[float] = None,
@@ -121,7 +121,7 @@ Rewrite Prompt: "{prompt}". Answer only with expanded prompt.""",
         expand_prompts: bool = True,
         save_path: str = None,
         progress: bool = True,
-        image: Optional[Union[Image,str]] = None
+        image: Optional[Union[Image.Image, str]] = None
     ):
         num_steps = self.num_steps if num_steps is None else num_steps
         guidance_weight = self.guidance_weight if guidance_weight is None else guidance_weight
@@ -169,7 +169,7 @@ Rewrite Prompt: "{prompt}". Answer only with expanded prompt.""",
         shape = (1, 1, height // 8, width // 8, 16)
 
         # GENERATION
-        images = generate_sample(
+        images = generate_sample_ti2i(
             shape,
             caption,
             self.dit,

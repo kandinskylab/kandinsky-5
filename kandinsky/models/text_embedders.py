@@ -102,29 +102,47 @@ class Qwen2_5_VLTextEmbedder:
         self.processor = AutoProcessor.from_pretrained(conf.checkpoint_path, use_fast=True)
         self.max_length = conf.max_length
         self.text_token_padding = text_token_padding
-        self.device = device
 
     def __call__(self, texts, images=None, type_of_content="video"):
         prompt_template = "\n".join(self.PROMPT_TEMPLATE["template"][type_of_content])
         crop_start = self.PROMPT_TEMPLATE["crop_start"][type_of_content]
         full_texts = list(map(lambda x: prompt_template.format(x), texts))
-        if images is not None:
-            for i in range(len(images)):
-                image_tokens = ''.join(['<|vision_start|><|image_pad|><|vision_end|>']*len(images[i]))
-                full_texts[i] = full_texts[i] + image_tokens + "<|im_end|>"
-            images = [F.resize(i, (i.shape[-2] // 2, i.shape[-1] // 2)) for i in images]
-        max_length = (self.max_length + crop_start) if images is None else None
-        inputs = self.processor(
-            text=full_texts,
-            images=images, 
-            truncation=True,
-            return_tensors="pt", 
-            padding=True,
-            max_length = max_length
-        ).to(self.device)
+        if type_of_content == "image_edit":
+            if images is not None:
+                for i in range(len(images)):
+                    image_tokens = ''.join(['<|vision_start|><|image_pad|><|vision_end|>']*len(images[i]))
+                    full_texts[i] = full_texts[i] + image_tokens + "<|im_end|>"
+                images = [F.resize(i, (i.shape[-2] // 2, i.shape[-1] // 2)) for i in images]
+            max_length = (self.max_length + crop_start) if images is None else None
+            inputs = self.processor(
+                text=full_texts,
+                images=images, 
+                truncation=True,
+                return_tensors="pt", 
+                padding=True,
+                max_length = max_length
+            ).to(self.model.device)
 
-        with torch.no_grad():
-            embeds = self.model(**inputs, output_hidden_states=True)["hidden_states"][-1][:, crop_start:]
+            with torch.no_grad():
+                embeds = self.model(**inputs, output_hidden_states=True)["hidden_states"][-1][:, crop_start:]
+        else:
+            max_length = self.max_length + crop_start
+            inputs = self.processor(
+                text=full_texts,
+                images=None,
+                videos=None,
+                max_length=max_length,
+                truncation=True,
+                return_tensors="pt",
+                padding="max_length",
+            ).to(self.model.device)
+
+            with torch.no_grad():
+                embeds = self.model(
+                    input_ids=inputs["input_ids"],
+                    return_dict=True,
+                    output_hidden_states=True,
+                )["hidden_states"][-1][:, crop_start:]
         attention_mask = inputs["attention_mask"][:, crop_start:]
         if self.text_token_padding:
             seq_length = embeds.shape[1]

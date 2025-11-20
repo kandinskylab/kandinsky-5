@@ -1,0 +1,46 @@
+metrics:
+  scale_factor:
+  - 1.0
+  - 1.0
+  - 1.0
+  resolution: 1024
+model:
+  checkpoint_path: "./weights/model/kandinsky5lite_t2i.safetensors"
+  num_steps: 50
+  guidance_weight: 3.5
+  dit_params:
+    in_visual_dim: 16
+    out_visual_dim: 16
+    time_dim: 512
+    patch_size:
+      - 1
+      - 2
+      - 2
+    model_dim: 2560
+    ff_dim: 10240
+    num_text_blocks: 2
+    num_visual_blocks: 50
+    axes_dims:
+      - 32
+      - 48
+      - 48
+  attention:
+    type: flash
+    causal: false
+    local: false
+    glob: false
+    window: 3
+  vae:
+    checkpoint_path: "./weights/flux/vae/"
+    name: "flux"
+  text_embedder:
+    qwen: 
+      emb_size: 3584
+      checkpoint_path: "./weights/text_encoder/"
+      max_length: 512
+    clip:
+      checkpoint_path: "./weights/text_encoder2/"
+      emb_size: 768
+      max_length: 77
+magcache:
+  mag_ratios: [0.83479, 0.82401, 1.04218, 1.04684, 1.03432, 1.03566, 1.02943, 1.03087, 1.02626, 1.02726, 1.01373, 1.01395, 1.01837, 1.01873, 1.01712, 1.01791, 1.01327, 1.01376, 1.01112, 1.01102, 1.01204, 1.01224, 1.00652, 1.0078, 1.01196, 1.01195, 1.00934, 1.00964, 1.0069, 1.00723, 1.00831, 1.00917, 1.00588, 1.00604, 1.00568, 1.0066, 1.00988, 1.01066, 1.00858, 1.00936, 1.00474, 1.00465, 1.00343, 1.0047, 1.0002, 0.99511, 1.00565, 1.01499, 1.00461, 1.00507, 1.00524, 1.00542, 1.00464, 1.00471, 0.99872, 0.99837, 1.00761, 1.00841, 1.00167, 1.00196, 1.00581, 1.00603, 1.00226, 1.003, 1.00387, 1.00391, 1.00357, 1.00408, 1.0014, 1.00164, 0.99996, 1.00029, 1.0055, 1.00601, 0.99761, 0.99761, 1.00028, 1.00061, 1.00353, 1.0035, 1.00035, 1.00058, 1.00196, 1.00229, 0.99987, 1.00022, 1.00144, 1.00165, 0.99946, 0.99941, 0.99732, 0.99749, 0.99646, 0.99507, 0.99323, 0.99088, 1.00579, 0.99927]

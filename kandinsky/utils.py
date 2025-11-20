@@ -1,16 +1,18 @@
 import os
-from typing import Union
-import torch
-from torch.distributed.device_mesh import init_device_mesh
+from typing import Optional, Union
 
-from huggingface_hub import snapshot_download
+import numpy as np
+import torch
+from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
+
+from huggingface_hub import hf_hub_download, snapshot_download
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 
-from .models.dit import get_dit
+from .models.dit import get_dit, TransformerDecoderBlock
 from .models.text_embedders import get_text_embedder
 from .models.vae import build_vae
-from .models.parallelize import parallelize_dit
+from .models.parallelize import parallelize_dit, parallelize_seq
 from .i2v_pipeline import Kandinsky5I2VPipeline
 from .t2v_pipeline import Kandinsky5T2VPipeline
 from .t2i_pipeline import Kandinsky5T2IPipeline
@@ -37,7 +39,6 @@ def set_hf_token(hf_token):
 
 def get_T2V_pipeline(
     device_map: Union[str, torch.device, dict],
-    resolution: int = 512,
     cache_dir: str = "./weights/",
     dit_path: str = None,
     text_encoder_path: str = None,
@@ -50,8 +51,6 @@ def get_T2V_pipeline(
     text_token_padding: bool = True,
     attention_engine: str = "auto",
 ) -> Kandinsky5T2VPipeline:
-    assert resolution in [512]
-
     if not isinstance(device_map, dict):
         device_map = {"dit": device_map, "vae": device_map, "text_embedder": device_map}
 
@@ -62,15 +61,20 @@ def get_T2V_pipeline(
     except:
         local_rank, world_size = 0, 1
 
+    torch.cuda.set_device(local_rank)
+
     assert not (world_size > 1 and offload), "Offloading available only with not parallel inference"
 
     if world_size > 1:
         device_mesh = init_device_mesh(
             "cuda", (world_size,), mesh_dim_names=("tensor_parallel",)
-        )
+        )["tensor_parallel"]
         device_map["dit"] = torch.device(f"cuda:{local_rank}")
         device_map["vae"] = torch.device(f"cuda:{local_rank}")
         device_map["text_embedder"] = torch.device(f"cuda:{local_rank}")
+
+    else:
+        device_mesh = None
 
     os.makedirs(cache_dir, exist_ok=True)
 
@@ -120,7 +124,7 @@ def get_T2V_pipeline(
     text_embedder = get_text_embedder(conf.model.text_embedder, device=device_map["text_embedder"],
                                       quantized_qwen=quantized_qwen, text_token_padding=text_token_padding)
     if not offload: 
-        text_embedder = text_embedder.to( device=device_map["text_embedder"]) 
+        text_embedder = text_embedder.to(device=device_map["text_embedder"]) 
 
     vae = build_vae(conf.model.vae)
     vae = vae.eval()
@@ -137,25 +141,38 @@ def get_T2V_pipeline(
             no_cfg = True
         set_magcache_params(dit, mag_ratios, num_steps, no_cfg)
 
-    state_dict = load_file(conf.model.checkpoint_path)
+    state_dict = load_file(conf.model.checkpoint_path, device='cpu')
     dit.load_state_dict(state_dict, assign=True)
 
-    if not offload:
-        dit = dit.to(device_map["dit"])
-
     if world_size > 1:
-        dit = parallelize_dit(dit, device_mesh["tensor_parallel"])
+        from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
+        mp_policy = MixedPrecisionPolicy(
+            param_dtype=torch.bfloat16, 
+            reduce_dtype=torch.bfloat16, 
+            output_dtype=torch.bfloat16
+        )
+
+        dit = dit.to(torch.float32)
+        for module in dit.modules():
+            if isinstance(module, TransformerDecoderBlock):
+                fully_shard(module, mesh=device_mesh, mp_policy=mp_policy)
+        fully_shard(dit, mesh=device_mesh, mp_policy=mp_policy)
+
+        dit = parallelize_seq(dit, device_mesh)
+
+    elif not offload:
+        dit = dit.to(device_map["dit"])
 
     return Kandinsky5T2VPipeline(
         device_map=device_map,
         dit=dit,
         text_embedder=text_embedder,
         vae=vae,
-        resolution=resolution,
         local_dit_rank=local_rank,
         world_size=world_size,
         conf=conf,
         offload=offload,
+        device_mesh=device_mesh,
     )
 
 def get_I2V_pipeline(
@@ -182,15 +199,19 @@ def get_I2V_pipeline(
     except:
         local_rank, world_size = 0, 1
 
+    torch.cuda.set_device(local_rank)
+
     assert not (world_size > 1 and offload), "Offloading available only with not parallel inference"
 
     if world_size > 1:
         device_mesh = init_device_mesh(
             "cuda", (world_size,), mesh_dim_names=("tensor_parallel",)
-        )
+        )["tensor_parallel"]
         device_map["dit"] = torch.device(f"cuda:{local_rank}")
         device_map["vae"] = torch.device(f"cuda:{local_rank}")
         device_map["text_embedder"] = torch.device(f"cuda:{local_rank}")
+    else:
+        device_mesh = None
 
     os.makedirs(cache_dir, exist_ok=True)
 
@@ -240,7 +261,7 @@ def get_I2V_pipeline(
     text_embedder = get_text_embedder(conf.model.text_embedder, device=device_map["text_embedder"],
                                       quantized_qwen=quantized_qwen, text_token_padding=text_token_padding)
     if not offload: 
-        text_embedder = text_embedder.to( device=device_map["text_embedder"]) 
+        text_embedder = text_embedder.to(device=device_map["text_embedder"]) 
     
     vae = build_vae(conf.model.vae)
     vae = vae.eval()
@@ -257,14 +278,27 @@ def get_I2V_pipeline(
             no_cfg = True
         set_magcache_params(dit, mag_ratios, num_steps, no_cfg)
 
-    state_dict = load_file(conf.model.checkpoint_path)
+    state_dict = load_file(conf.model.checkpoint_path, device='cpu')
     dit.load_state_dict(state_dict, assign=True)
 
-    if not offload:
-        dit = dit.to(device_map["dit"])
-
     if world_size > 1:
-        dit = parallelize_dit(dit, device_mesh["tensor_parallel"])
+        from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
+        mp_policy = MixedPrecisionPolicy(
+            param_dtype=torch.bfloat16, 
+            reduce_dtype=torch.bfloat16, 
+            output_dtype=torch.bfloat16
+        )
+
+        dit = dit.to(torch.float32)
+        for module in dit.modules():
+            if isinstance(module, TransformerDecoderBlock):
+                fully_shard(module, mesh=device_mesh, mp_policy=mp_policy)
+        fully_shard(dit, mesh=device_mesh, mp_policy=mp_policy)
+
+        dit = parallelize_seq(dit, device_mesh)
+
+    elif not offload:
+        dit = dit.to(device_map["dit"])
 
     return Kandinsky5I2VPipeline(
         device_map=device_map,
@@ -275,6 +309,7 @@ def get_I2V_pipeline(
         world_size=world_size,
         conf=conf,
         offload=offload,
+        device_mesh=device_mesh,
     )
 
 
@@ -536,8 +571,7 @@ def get_default_conf(
             "num_steps": 50,
             "guidance_weight": 5.0,
         },
-        "metrics": {"scale_factor": (1, 2, 2)},
-        "resolution": 512,
+        "metrics": {"scale_factor": (1, 2, 2), "resolution": 512,},
     }
 
     return DictConfig(conf)

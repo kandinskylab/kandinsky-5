@@ -1,0 +1,45 @@
+metrics:
+  scale_factor:
+  - 1.0
+  - 1.0
+  - 1.0
+  resolution: 1024
+model:
+  checkpoint_path: "./weights/model/kandinsky5lite_i2i.safetensors"
+  num_steps: 50
+  guidance_weight: 3.5
+  dit_params:
+    instruct_type: "channel"
+    in_visual_dim: 16
+    out_visual_dim: 16
+    time_dim: 512
+    patch_size:
+      - 1
+      - 2
+      - 2
+    model_dim: 2560
+    ff_dim: 10240
+    num_text_blocks: 2
+    num_visual_blocks: 50
+    axes_dims:
+      - 32
+      - 48
+      - 48
+  attention:
+    type: flash
+    causal: false
+    local: false
+    glob: false
+    window: 3
+  vae:
+    checkpoint_path: "./weights/flux/vae/"
+    name: "flux"
+  text_embedder:
+    qwen: 
+      emb_size: 3584
+      checkpoint_path: "./weights/text_encoder/"
+      max_length: 512
+    clip:
+      checkpoint_path: "./weights/text_encoder2/"
+      emb_size: 768
+      max_length: 77

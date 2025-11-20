@@ -2,19 +2,27 @@ import os
 import argparse
 from huggingface_hub import snapshot_download
 
-MODELS = [
-    'kandinskylab/Kandinsky-5.0-T2V-Lite-pretrain-5s',
-    'kandinskylab/Kandinsky-5.0-T2V-Lite-pretrain-10s',
+MODELS_0 = [
     'kandinskylab/Kandinsky-5.0-T2V-Lite-sft-5s',
     'kandinskylab/Kandinsky-5.0-T2V-Lite-sft-10s',
-    'kandinskylab/Kandinsky-5.0-T2V-Lite-nocfg-5s',
-    'kandinskylab/Kandinsky-5.0-T2V-Lite-nocfg-10s',
     'kandinskylab/Kandinsky-5.0-T2V-Lite-distilled16steps-5s',
     'kandinskylab/Kandinsky-5.0-T2V-Lite-distilled16steps-10s',
     'kandinskylab/Kandinsky-5.0-I2V-Lite-5s',
     'kandinskylab/Kandinsky-5.0-T2I-Lite',
     'kandinskylab/Kandinsky-5.0-I2I-Lite',
+    'kandinskylab/Kandinsky-5.0-T2V-Pro-sft-5s',
+    'kandinskylab/Kandinsky-5.0-T2V-Pro-sft-10s',
+    'kandinskylab/Kandinsky-5.0-I2V-Pro-sft-5s',
 ]
+
+MODELS_1 = [
+    'kandinskylab/Kandinsky-5.0-T2V-Lite-pretrain-5s',
+    'kandinskylab/Kandinsky-5.0-T2V-Lite-pretrain-10s',
+    'kandinskylab/Kandinsky-5.0-T2V-Lite-nocfg-5s',
+    'kandinskylab/Kandinsky-5.0-T2V-Lite-nocfg-10s',
+]
+
+MODELS = MODELS_0 + MODELS_1
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -23,7 +31,7 @@ if __name__ == "__main__":
     parser.add_argument("--hf_token", type=str, default=None)
     args = parser.parse_args()
 
-    models = MODELS if args.models == 'all' else args.models.split(',')
+    models = MODELS_0 if args.models == 'all' else args.models.split(',')
     for model in models:
         assert model in MODELS, f'unknown model {model}'
     
