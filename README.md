@@ -40,9 +40,11 @@ https://github.com/user-attachments/assets/f511c337-59ba-4f85-8fe9-cf90523ae97f
 
 Kandinsky 5.0 Video Pro is a line-up of 19B models that generates high-quality HD videos from English and Russian prompts with controllable camera motion.
 
-We provide 8 Text-to-Video model variants, each optimized for different use cases:
+We provide several Text-to-Video model variants, each optimized for different use cases:
 
 * SFT model — delivers the highest generation quality;
+
+* Pretrain model — designed for fine-tuning by researchers and enthusiasts.
 
 All models are available in two versions: for generating 5-second and 10-second videos.
 
@@ -69,11 +71,11 @@ Additionally, we provide Image-to-Video model capable to generate video given in
 | Model                               | config | video duration | NFE | Checkpoint | Latency* |
 |-------------------------------------|--------|----------------|-----|------------|----------------|
 | Kandinsky 5.0 T2V Pro SFT 5s HD       | configs/k5_pro_t2v_5s_sft_hd.yaml | 5s             | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-sft-5s) |      1241     |
-| Kandinsky 5.0 T2V Pro SFT 10s HD     |configs/k5_pro_t2v_10s_sft_hd.yaml| 10s            | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-sft-10s) |      -     |
+| Kandinsky 5.0 T2V Pro SFT 10s HD     |configs/k5_pro_t2v_10s_sft_hd.yaml| 10s            | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-sft-10s) |      3218     |
 | Kandinsky 5.0 T2V Pro SFT 5s SD       | configs/k5_pro_t2v_5s_sft_sd.yaml | 5s             | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-sft-5s) |      560     |
 | Kandinsky 5.0 T2V Pro SFT 10s SD     |configs/k5_pro_t2v_10s_sft_sd.yaml| 10s            | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-sft-10s) |      1158     |
 | Kandinsky 5.0 T2V Pro pretrain 5s HD     |-| 5s            | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-pretrain-5s) |      1241     |
-| Kandinsky 5.0 T2V Pro pretrain 10s HD     |-| 10s            | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-pretrain-10s) |      -     |
+| Kandinsky 5.0 T2V Pro pretrain 10s HD     |-| 10s            | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-pretrain-10s) |      3218     |
 | Kandinsky 5.0 T2V Pro pretrain 5s SD     |-| 5s            | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-pretrain-5s) |      560     |
 | Kandinsky 5.0 T2V Pro pretrain 10s SD     |-| 10s            | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-T2V-Pro-pretrain-10s) |      1158     |
 | Kandinsky 5.0 I2V Pro HD 5s       | configs/k5_pro_i2v_5s_sft_hd.yaml | 5s             | 100 |🤗 [HF](https://huggingface.co/kandinskylab/Kandinsky-5.0-I2V-Pro-sft-5s) |      -     |
