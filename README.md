@@ -21,7 +21,7 @@ https://github.com/user-attachments/assets/b06f56de-1b05-4def-a611-1a3159ed71b0
 
 
 ## Project Updates
-
+- 🔥 ```2025/11/24```: LoRas for Camera control is open-sourced: [Lite LoRAs](https://huggingface.co/collections/kandinskylab/kandinsky-50-video-lite-loras) and [Pro LoRAs](https://huggingface.co/collections/kandinskylab/kandinsky-50-video-pro-loras). Inference code is avaibale in `examples/inference_examples_i2v_lora.ipynb` and `examples/inference_examples_t2v_lora.ipynb`
 - 🔥 ```2025/11/20```: `Kandinsky 5.0 Video Pro` is open-sourced. T2V & I2V models are available.
 - 🔥 ```2025/11/15```: `Kandinsky 5.0 Lite I2V` & `Kandinsky 5.0 Lite T2I` models are open-sourced.
 - 🔥 ```2025/10/19```: Further VAE tiling optimization. NF4 version of Qwen2.5-VL from Bitsandbytes is supported. Flash Attention 2, Flash Attention 2, Sage Attention or SDPA can be selected for 5-seconds generation using option --attention_engine. Now generation should work on the GPUS with 12 GB of memory. Kandinsky 5 Video Lite is [accepted to diffusers](https://github.com/huggingface/diffusers/pull/12478).
