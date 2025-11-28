@@ -5,10 +5,11 @@
 
 ## Description
 
-This project provides a workflow for generating videos using the Kandinsky 5 model within the ComfyUI environment.
+This project provides a workflow for generating videos and images using the Kandinsky 5 model within the ComfyUI environment.
 
 ## Updates
 
+- 🔥 ```2025/11/28```: Image 2 Image and Text 2 Image pipelines added.
 - 🔥 ```2025/11/13```: Image 2 Video pipeline added.
 
 
@@ -47,7 +48,13 @@ Launch ComfyUI (typically available at http://127.0.0.1:8188)
 
 In the ComfyUI interface, click the "Load" button
 
-Select the kandisnky5_lite_T2V.json file from this folder of this repository for generation video from text, kandisnky5_lite_I2V.json for generation video from start image and text 
+Select the appropriate JSON file for your task from kandinsky-5/comfyui directory:
+| Workflow File            | Mode           | Description                                        |
+| ------------------------ | -------------- | -------------------------------------------------- |
+| kandinsky5_lite_T2V.json | Text-to-Video  | Generate a video sequence from a text prompt       |
+| kandinsky5_lite_I2V.json | Image-to-Video | Animate a starting image using a text prompt       |
+| kandinsky5_lite_T2I.json | Text-to-Image  | Generate a static image from a text prompt         |
+| kandinsky5_lite_I2I.json | Image-to-Image | Edit or transform an image using text instructions |
 
 The workflow will load into the ComfyUI interface
 
@@ -58,12 +65,20 @@ Download the required models and place them in the appropriate folders.
 1. Run download_models.py It will download models and encoders to ./weights directory.
 2. Rearrange them to comfyui paths(text_encoders/diffusion_models/vae).
 
+```
+./weights/text_encoder -> ComfyUI/models/text_encoders/text_encoder
+./weights/text_encoder2 -> ComfyUI/models/text_encoders/text_encoder2
+./weights/vae -> ComfyUI/models/vae/hunyuan_vae
+./weights/flux/vae -> ComfyUI/models/vae/flux_vae
+```
 ```file-tree
 ComfyUI/
 ├── models/
 │   ├── text_encoders/          # For text_encoder and text_encoder2 models
 │   ├── diffusion_models/       # For kandinsky5lite_*2v*_*.safetensors models  
-│   └── vae/                    # For vae model
+│   └── vae/
+│        ├── hunyuan_vae         # For vae model
+│        └── flux_vae           # For flux/vae model
 ```
 
 ### 5. Configure Parameters
